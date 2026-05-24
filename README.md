@@ -245,27 +245,91 @@ scl-analyzer analyze MY_FB.scl --cpu S7-300-CPU315-2DP --cycle-time 10ms --expor
 
 ### All CLI Options
 
-```
-Usage: scl-analyzer analyze [OPTIONS] SCL_FILE
+The CLI provides two main commands: `analyze` for running the static analysis, and `profiles` for displaying available CPU models.
 
-  Analyses an SCL function block (FB) and calculates WCET/BCET.
-
-Arguments:
-  SCL_FILE  Path to the SCL FB source file (SIMATIC Manager export)
-
-Options:
-  --cpu TEXT          S7-300 CPU profile (e.g. S7-300-CPU315-2DP)  [required]
-  --cycle-time TEXT   Cycle time in ms (e.g. 10ms)                  [required]
-  --export TEXT       Export format: json|html|csv|text
-  --output PATH       Output path for the export file
-  --max-iter INTEGER  Max iterations for WHILE/REPEAT loops [default: 100]
-  --help              Show this message and exit.
+```bash
+scl-analyzer [COMMAND] [OPTIONS]
 ```
 
-**List all available CPU profiles:**
+---
+
+#### 1. `scl-analyzer profiles`
+Lists all available S7-300 CPU profiles loaded into the database, displaying their name, clock rate, and hardware order number.
+
+**Example:**
 ```bash
 scl-analyzer profiles
 ```
+
+---
+
+#### 2. `scl-analyzer analyze SCL_FILE [OPTIONS]`
+Performs the core static analysis on the specified `.scl` file.
+
+##### **Arguments:**
+*   `SCL_FILE` (Required): The path to the SCL file containing the function block (FB) to analyze.
+
+##### **Options:**
+*   `--cpu TEXT` (Required)
+    *   **Description:** The target CPU profile to run the analysis against.
+    *   **Examples:** `S7-300-CPU314`, `S7-300-CPU315-2DP`, `S7-300-CPU317F-3`.
+    *   **Use Case:** Switch between different PLC hardware profiles to see if the block can run within budget on a slower CPU or requires upgrading to a faster CPU.
+*   `--cycle-time TEXT` (Required)
+    *   **Description:** The target cycle time/interval. If the calculated WCET exceeds this value, the tool returns a `FAIL` verdict (and exits with status code `1` for CI/CD integrations). Supports units `ms` (milliseconds) and `s` (seconds). If no unit is provided, milliseconds is assumed.
+    *   **Examples:** `10ms`, `500ms`, `0.5s`, `20` (interpreted as `20ms`).
+    *   **Use Case:** Setting the cycle boundary to guarantee that the execution time of the block is always within the target cycle time of the task (e.g. 10ms task cycle).
+*   `--export TEXT` (Optional)
+    *   **Description:** Export format for the analysis report.
+    *   **Allowed Values:** `json`, `html`, `csv`, `text`.
+    *   **Use Case:** Generate professional HTML reports for sharing, CSV files for Excel spreadsheet analysis, or JSON for integration into build pipelines.
+*   `--output PATH` (Optional)
+    *   **Description:** Destination path for the exported report. If omitted, the report is saved in the current directory as `report_<scl_filename>.<format>`.
+    *   **Use Case:** Standardize report storage locations during automated builds.
+*   `--max-iter INTEGER` (Optional)
+    *   **Description:** Set the maximum number of loop iterations for dynamically bounded loops (`WHILE` and `REPEAT`). Default value is `100`.
+    *   **Use Case:** Adjust the loop limit depending on the design parameters of your algorithm to get accurate WCET estimations.
+
+---
+
+### Detailed Guide: How `--max-iter` works
+
+Since static analysis operates without running the code, it faces the **halting problem** and cannot automatically determine how many times loops will execute if their bounds depend on runtime data. 
+
+To solve this, the analyzer classifies loops into two categories:
+
+#### A. Statically Bounded Loops (Resolved Automatically)
+Loops with constant/static boundaries (typically `FOR` loops) are automatically parsed and resolved by the tool. Their bounds are extracted directly from the SCL syntax and do not use `--max-iter`.
+*   **Example:**
+    ```scl
+    FOR i := 1 TO 10 DO
+        temp_sum := temp_sum + data[i];
+    END_FOR;
+    ```
+    *   *Bound Resolution:* The parser knows this will iterate **exactly 10 times**. It ignores `--max-iter` and calculates execution time based on exactly 10 iterations.
+
+#### B. Dynamically Bounded Loops (Uses `--max-iter`)
+Loops whose exit conditions depend on dynamically changing values or sensor inputs (such as `WHILE` or `REPEAT` loops) cannot be resolved statically.
+*   **Example:**
+    ```scl
+    WHILE sensor_active DO
+        process_data();  // Latency: 0.001 ms per iteration
+    END_WHILE;
+    ```
+    *   *Bound Resolution:* The exit condition is `sensor_active`, which depends on external inputs. The analyzer must make an assumption. It uses the value provided to `--max-iter` as the worst-case number of iterations.
+
+#### Mathematical Impact of `--max-iter` on WCET:
+Assuming the loop body has a latency of `0.001 ms` per iteration:
+
+| `--max-iter` Value | Execution Time Calculation | WCET Contribution |
+| :--- | :--- | :--- |
+| `--max-iter 10` | 0.001 ms × 10 | **0.01 ms** |
+| `--max-iter 100` *(Default)* | 0.001 ms × 100 | **0.10 ms** |
+| `--max-iter 500` | 0.001 ms × 500 | **0.50 ms** |
+
+#### Practical Rule of Thumb:
+*   **Default (100):** Suitable for most general-purpose blocks with typical logic.
+*   **Adjust Lower:** If you have an algorithm (e.g., binary search or a small filter) where you mathematically know the loop cannot run more than 10 or 20 times.
+*   **Adjust Higher:** If you process large data arrays or do communication buffering where a loop might run up to 500 or 1000 times. Always choose the **worst-case scenario** that is physically possible in your system.
 
 ---
 

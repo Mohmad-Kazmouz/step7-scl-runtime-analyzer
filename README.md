@@ -405,28 +405,38 @@ step7-scl-runtime-analyzer/
 
 ## Testing
 
-Run the full test suite:
+To run the tests, you must either activate your virtual environment first, or run `pytest` via the virtual environment path.
 
+### Option 1: Activate Virtual Environment First (Recommended)
 ```bash
+# Windows (PowerShell):
+.venv\Scripts\activate
+
+# Linux / macOS:
+source .venv/bin/activate
+
+# Then run any test command directly:
 pytest
-```
-
-Run with coverage report:
-
-```bash
 pytest --cov=src --cov-report=term-missing
-```
-
-Run only unit tests:
-
-```bash
 pytest tests/unit/
+pytest tests/integration/
 ```
 
-Run only integration tests:
+### Option 2: Run via Direct Virtual Environment Path
+If you do not want to activate the virtual environment, run using the path to the virtual environment's executable:
 
 ```bash
-pytest tests/integration/
+# Windows (PowerShell / CMD):
+.\.venv\Scripts\pytest
+.\.venv\Scripts\pytest --cov=src --cov-report=term-missing
+.\.venv\Scripts\pytest tests/unit/
+.\.venv\Scripts\pytest tests/integration/
+
+# Linux / macOS:
+./.venv/bin/pytest
+./.venv/bin/pytest --cov=src --cov-report=term-missing
+./.venv/bin/pytest tests/unit/
+./.venv/bin/pytest tests/integration/
 ```
 
 **Current test status:** ✅ 31 tests passing

@@ -407,6 +407,20 @@ step7-scl-runtime-analyzer/
 
 To run the tests, you must either activate your virtual environment first, or run `pytest` via the virtual environment path.
 
+### 💡 Single Command (Run everything + Coverage)
+Since `pytest` automatically runs all unit and integration tests under the `tests/` directory, you only need **one single command** to run all tests and display the coverage report:
+
+*   **If virtual environment is active:**
+    ```bash
+    pytest --cov=src --cov-report=term-missing
+    ```
+*   **Via direct path (without activating venv):**
+    ```bash
+    .\.venv\Scripts\pytest --cov=src --cov-report=term-missing
+    ```
+
+---
+
 ### Option 1: Activate Virtual Environment First (Recommended)
 ```bash
 # Windows (PowerShell):
@@ -415,11 +429,10 @@ To run the tests, you must either activate your virtual environment first, or ru
 # Linux / macOS:
 source .venv/bin/activate
 
-# Then run any test command directly:
-pytest
-pytest --cov=src --cov-report=term-missing
-pytest tests/unit/
-pytest tests/integration/
+# Then run specific test commands directly:
+pytest                       # Run all tests (quick)
+pytest tests/unit/           # Run unit tests only
+pytest tests/integration/    # Run integration tests only
 ```
 
 ### Option 2: Run via Direct Virtual Environment Path
@@ -428,13 +441,11 @@ If you do not want to activate the virtual environment, run using the path to th
 ```bash
 # Windows (PowerShell / CMD):
 .\.venv\Scripts\pytest
-.\.venv\Scripts\pytest --cov=src --cov-report=term-missing
 .\.venv\Scripts\pytest tests/unit/
 .\.venv\Scripts\pytest tests/integration/
 
 # Linux / macOS:
 ./.venv/bin/pytest
-./.venv/bin/pytest --cov=src --cov-report=term-missing
 ./.venv/bin/pytest tests/unit/
 ./.venv/bin/pytest tests/integration/
 ```

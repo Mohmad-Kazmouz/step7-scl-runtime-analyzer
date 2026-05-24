@@ -29,7 +29,8 @@ def cli():
 @click.argument("scl_file", type=click.Path(exists=True, path_type=Path))
 @click.option("--cpu",        required=True,  help="S7-300 CPU-Profil (z.B. S7-300-CPU315-2DP)")
 @click.option("--cycle-time", required=True,  help="Zykluszeit in ms (z.B. 10ms)")
-@click.option("--export",     default=None,   help="Exportformat: json|html|csv|text")
+@click.option("--export",     type=click.Choice(["json", "html", "csv", "text"], case_sensitive=False),
+              help="Exportformat: json|html|csv|text")
 @click.option("--output",     default=None,   type=click.Path(path_type=Path),
               help="Ausgabepfad für den Export")
 @click.option("--max-iter",   default=100,    show_default=True,
@@ -104,9 +105,18 @@ def analyze(scl_file: Path, cpu: str, cycle_time: str,
 
     # Export
     if export:
-        out = output or Path(f"report_{scl_file.stem}.{export}")
-        Reporter().export(result, hotspots, fmt=export, output=out)
-        console.print(f"\n[green]Ergebnis gespeichert:[/green] {out}")
+        # Falls output ein existierender Ordner ist, Standard-Dateinamen anhängen
+        if output and output.is_dir():
+            out = output / f"report_{scl_file.stem}.{export.lower()}"
+        else:
+            out = output or Path(f"report_{scl_file.stem}.{export.lower()}")
+
+        try:
+            Reporter().export(result, hotspots, fmt=export, output=out)
+            console.print(f"\n[green]Ergebnis gespeichert:[/green] {out}")
+        except Exception as e:
+            console.print(f"\n[red]Fehler beim Exportieren:[/red] {e}")
+            sys.exit(1)
 
     sys.exit(0 if result.passed else 1)
 

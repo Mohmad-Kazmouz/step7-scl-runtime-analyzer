@@ -151,29 +151,28 @@ scl-analyzer analyze MY_FB.scl --cpu S7-300-CPU315-2DP --cycle-time 10ms
 
 **Example output:**
 ```
-┌───────────────────────────────────────────────────────────────┐
-│ SCL Runtime Analyzer v1.0.0  |  Zielplattform: Siemens S7-300 │
-└───────────────────────────────────────────────────────────────┘
-✓ CPU-Profil geladen: CPUProfile(S7-300-CPU315-2DP, 80.0MHz)
-✓ Parsing abgeschlossen: FB 'FB4200'
-✓ CFG erstellt: 218 Blöcke (Schleifen aufgelöst)
+SCL Runtime Analyzer v1.0.0  |  Zielplattform: Siemens S7-300
+--------------------------------------------------------------
+[OK] CPU-Profil geladen: CPUProfile(S7-300-CPU315-2DP, 80.0MHz)
+[OK] Parsing abgeschlossen: FB 'FB4200'
+[OK] CFG erstellt: 218 Bloecke (Schleifen aufgeloest)
 
-┌───────────────────┬──────────┐
-│ Kennzahl          │     Wert │
-├───────────────────┼──────────┤
-│ WCET (Worst Case) │ 0.245 ms │
-│ BCET (Best Case)  │ 0.000 ms │
-│ Zykluszeit        │  10.0 ms │
-│ Sicherheitspuffer │    97.5% │
-│ Bewertung         │     PASS │
-└───────────────────┴──────────┘
++-------------------+----------+
+| Kennzahl          |     Wert |
++-------------------+----------+
+| WCET (Worst Case) | 0.245 ms |
+| BCET (Best Case)  | 0.000 ms |
+| Zykluszeit        |  10.0 ms |
+| Sicherheitspuffer |    97.5% |
+| Bewertung         |     PASS |
++-------------------+----------+
 
                         Top Hotspots
-┌───┬───────────┬──────────┬────────┬──────────────────────────┐
-│ # │ Zeilen    │   Latenz │ Anteil │ Hinweis                  │
-├───┼───────────┼──────────┼────────┼──────────────────────────┤
-│ 1 │ 1205–1373 │ 0.078 ms │    32% │ Intensiver DB-Zugriff... │
-└───┴───────────┴──────────┴────────┴──────────────────────────┘
++---+-----------+----------+--------+--------------------------+
+| # | Zeilen    |   Latenz | Anteil | Hinweis                  |
++---+-----------+----------+--------+--------------------------+
+| 1 | 1205-1373 | 0.078 ms |    32% | Intensiver DB-Zugriff... |
++---+-----------+----------+--------+--------------------------+
 ```
 
 ---

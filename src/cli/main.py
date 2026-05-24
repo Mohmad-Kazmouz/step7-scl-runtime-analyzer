@@ -104,6 +104,12 @@ def analyze(scl_file: Path, cpu: str, cycle_time: str,
     _print_results(result, hotspots)
 
     # Export
+    # Falls --output angegeben ist, aber --export fehlt: Format aus Dateiendung ableiten
+    if not export and output and not output.is_dir():
+        suffix = output.suffix.lower().lstrip('.')
+        if suffix in ["json", "html", "csv", "text", "txt"]:
+            export = "text" if suffix in ["txt", "text"] else suffix
+
     if export:
         # Falls output ein existierender Ordner ist, Standard-Dateinamen anhängen
         if output and output.is_dir():

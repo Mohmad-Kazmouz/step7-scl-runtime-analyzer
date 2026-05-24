@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-31%20passed-brightgreen)](#testing)
-[![Platform](https://img.shields.io/badge/Platform-Siemens%20S7--300-orange)](https://new.siemens.com/)
+[![Platform](https://img.shields.io/badge/Platform-Siemens%20-orange)](https://new.siemens.com/)
 
 ---
 

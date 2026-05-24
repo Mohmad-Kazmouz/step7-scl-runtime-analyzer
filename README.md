@@ -575,8 +575,6 @@ all copies or substantial portions of the Software.
 
 <div align="center">
 
-Made with ❤️ for the Siemens S7-300 PLC engineering community
-
 **[⬆ Back to Top](#️-step7-scl-runtime-analyzer)**
 
 </div>

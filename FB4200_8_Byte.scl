@@ -1,0 +1,1447 @@
+FUNCTION_BLOCK FB4200
+
+(************************************************************************)
+TITLE = 'SCL_BLOCK_WP_Revolution'
+VERSION : '1.0'
+AUTHOR  : 'Kazmouz'
+// Last Change: 2026.04.26
+(************************************************************************
+
+
+***** This FB is used for the  WattPilote Revolution with PROFINET IO*****
+
+
+*************************************************************************)
+
+CONST
+
+    TIME_TP_MDS_MS          := T#70ms;  // Set "WP.b_MDS" for the selected time. 
+    TIME_TON_MDS_MS         := T#20ms;  // Delay activation of MDS after "WP.b_MDS=1". MDS will be activated for value of time difference (TIME_TP_MDS_MS - TIME_TON_MDS_MS).
+    TIME_CTRMON_MS          := T#50ms;  // Time TON function WP CTR-MON-Handshake
+    TIME_TON_ACQ_MS         := T#50ms;  // Time TON function WP alarm acknowledge
+    TIME_TP_ACQ_MS          := T#50ms;  // Time TP function WP alarm acknowledge
+    TIME_TIMEOUT_S          := T#10s;   // Time TON function for WP-Timeout
+    
+    TIME_TOF_MTOC_MS        := T#800ms; // Time TOF function for manual tool change
+    TIME_TON_LDB_MS         := T#10ms;  // Time TON function fpor load data blcok
+    TIME_TON_MCM_MS         := T#10ms;  // Time TON function for MCM monitoring time delay (time between activation of MCM and activation of MCM output to WP)
+    TIME_TON_HSM_S          := T#5s;    // Time TON function for HSM monitoring time delay. The duration of an HSM cycle is less than one second, if the cycle is more longer, there's a problem.
+                                        // the reset timer needs to start as soon as the HSM output becomes active, , if the HSM cycle finishes before the timer expires,
+                                        // the timer is never triggered. If the HSM output is still active after 5 seconds, the timer resets it.
+    TIME_TP_LDB_MS          := T#3s;    // Time TON function fpor load data block
+    
+    
+END_CONST
+                   
+
+VAR_INPUT
+    i16_NC_Channel_No       : INT;                              // Insert the NC-Channel Number to be monitored
+    
+    u32_FromWP_1of4         : DWORD;                            // Insert the PLC Input Address of the 1st 4 Byte of WP-Output Interface of current used WP-Channel. 
+    arr_WP_In_1of4  AT  u32_FromWP_1of4 : ARRAY[0..3] OF BYTE;  // DWORD "u32_FromWP_1of4" can also be accessed as Array of Byte.  
+    u32_FromWP_2of4         : DWORD;                            // Insert the PLC Input Address of the 2nd 4 Byte of WP-Output Interf    of current used WP-Channel.
+    arr_WP_In_2of4  AT  u32_FromWP_2of4 : ARRAY[0..3] OF BYTE;  // DWORD "u32_FromWP_2of4" can also be accessed as Array of Byte. 
+    
+    u32_FromWP_3of4         : DWORD;                            // Insert the PLC Input Address of the 3th 4 Byte of WP-Output Interface of current used WP-Channel. 
+    arr_WP_In_3of4  AT  u32_FromWP_3of4 : ARRAY[0..3] OF BYTE;  // DWORD "u32_FromWP_3of4" can also be accessed as Array of Byte.
+    u32_FromWP_4of4         : DWORD;                            // Insert the PLC Input Address of the 4th 4 Byte of WP-Output Interface of current used WP-Channel. 
+    arr_WP_In_4of4  AT  u32_FromWP_4of4 : ARRAY[0..3] OF BYTE;  // DWORD "u32_FromWP_4of4" can also be accessed as Array of Byte.
+
+    b_Extended_Mode         : BOOL; // TRUE = Extended Mode (16 bytes/dir), FALSE = Normal Mode (8 bytes/dir)
+    b_FeedRate_TargetOverride   : BOOL; // This input is transfering the  feed rate to WP u16_F15_00 when the bit is set, and when it not set
+                                        //it will transfer the TargetOverride to WP u16_F15_00. 
+    b_FastIO_ALR            : BOOL; // Optional: PLC input address can be connected to get a faster ALR-Signal. 
+                                    // This Bit is OR-connected with ALR-Signal from fieldbus (WattPilote.FromWP.ALR).
+                                    // !NOTICE!: This input must be set =1 (no WP-Alarm, low active) if you not use Fast IO!
+    b_FastIO_STP            : BOOL; // Optional: PLC input address can be connected to get a faster STP-Signal. 
+                                    // This Bit is OR-connected with STP-Signal from fieldbus (WattPilote.FromWP.STP).
+                                    // !NOTICE!: This input must be set =0 (no Stop, high active) if you not use Fast IO!                                 
+    b_WP_SP_Alarm_Ackn         : BOOL; // WP Alarm Acknowledgement: When this Bit (OR Button "Reset") is set for at least 50 ms the WP-Alarm Mode will be reseted.
+                                    // This FB-Input can also be used to insert AC Power Target directly by Byte-Variable.
+    u16_SpindleSpeed_In         : WORD; // Input for scaled spindle speed from FB4219
+    u16_FeedRate_In             : WORD; // Input for scaled feed rate from FB4220
+    r32_WP_Rated_Power_W    : REAL; // Rated Power of WP in Watt.  
+    b_AC_OFF                : BOOL; // Flag to stop the AC-function.
+    u16_AC_PowerTarget      : WORD; // Value of the power target (power of cutting condition, 0 to 65000 watts). WP uses this value to calculate the override factor and FB-Output " u8_AC_OV_Value ".
+                                    // In combination with FB4203 "WP_H_ACPower" AC Power Target can be transferred to WP via H-Function (e.g. H25).
+    b_Ext_ModeChange        : BOOL; // Flag to indicate that WP Operation Mode Change can be done manually by the operator (from the machine HMI or from dedicated buttons). 
+                                    // Set =true to allow WP Mode Change from PLC when WP is deactivated (mode 4: monitoring deactivated). 
+                                    // While using only H-function for Mode Change this FB-Input must be set =false.     
+    u8_WP_MD_No             : BYTE; // FB-Input for WP MD-Number: Digital Way provides 2 ways to transfer the MD-Number to WP:
+                                    //  1: FB4202 "WP_H_ModeNo"      - Input from H-Function 
+                                    //  2: FB4208 "WP_Direct_ModeNo" - Input from Bool-Variable for each Mode
+    b_Mode_Error            : BOOL; // Flag to set a WP-Alarm in case of error in MD-Number.
+    u8_WP_curve_NO              : Byte; // FB-Input for Kurve-Number: in combination with FB4201 "WP_H_CurveNo" the PB-Number via H-Function can be inserted and transferred to WP. 
+    b_WP_Curve_Error           : BOOL; // Flag to set a WP-Alarm in case of error in Curve-Number. 
+    u8_WP_Block_NO          : Byte; // FB-Input for WP Block: in combination with FB4205 "WP_H_BlockNo" the PB-Number via H-Function can be inserted and transferred to WP.
+
+    b_WP_Block_Error           : BOOL; // Flag to set a WP-Alarm in case of error in Block-Number.
+
+    b_WP_MDS_MCode          : BOOL; // Flag to trigger TP-Function for MDS (Validation of Mode Change): in combination with FB4206 "WP_M_ModeChange" this FB-Input is set via M-Function (M126) for on PLC-Cycle. 
+    b_WP_MDS_Manually       : BOOL; // Flag to trigger TP-Function for MDS (Validation of Mode Change): in combination with FB4208 "WP_Direct_ModeNo" MDS will trigger automatically via change of Mode Number.
+    
+    b_WP_StartMonitoring       : BOOL; // Flag to set WP-Input "CTR":   in combination with FB4204 "WP_M_StartMon" the signal for start of monitoring can be transferred to WP via M-Function. 
+    b_WP_StopMonitoring        : BOOL; // Flag to reset WP-Input "CTR": in combination with FB4205 "WP_M_StopMon" the signal for end of monitoring can be transferred to WP via M-Function. 
+    
+   
+    b_WP_M_LDB_On               : Bool; // Flag to set WP-Input "LDB": in combination with FB4213 "WP_M_Load_Block" the signal for start of laoding block number can be transferred to WP via M-Function.                                     
+    b_WP_OFF                : BOOL; // When b_WP_OFF=1, machining monitoring by WattPilote is disabled (ENA=0), and the execution of a part program (which contains monitoring functions) does not generate alarms.
+    
+    
+    u8_SP_Func_NO               : Byte; // FB-Input for WP Function: in combination with FB4224 "WP_H_FuncNo" the PB-Number via H-Function can be inserted and transferred to WP.                                  
+    b_SP_Func_Error            : BOOL; // Flag to set a WP-Alarm in case of error in Function-Number.
+    u8_SP_Tool_NO               : Byte; // This input is used to select the number of H-function (e.g. H23=1-250) to transfer the Tool-Number to WattPilote (Tool-Number). 
+    b_SP_Tool_NR_Error         : BOOL; // Flag to set a WP-Alarm in case of error in Tool-Number. 
+                                                                       
+    b_SP_Start_MCM_Spindle      : BOOL; // This input is used to select the number of M-function (e.g. M140), which is used to set WP-Input MCM
+    b_SP_Start_MCM_Axis         : BOOL; // This input is used to select the number of M-function (e.g. M141), which is used to set WP-Input MCM
+    b_SP_Stop_MCM               : BOOL; // This input is used to select the number of M-function (e.g. M142), which is used to reset WP-Input MCM
+
+    b_SP_M_No_TCC_Start         : BOOL; // This input is used to select the number of M-function (e.g. M134), which is used to start a Tool Change Cycle (TCC) in the machine.
+    b_SP_M_No_TCC_End           : BOOL; // This input is used to select the number of M-function (e.g. M135), which is used to end a Tool Change Cycle (TCC) in the machine.
+    b_SP_M_HSM_Cycle_Start      : BOOL; // This input is used to select the number of M-function (e.g. M150), which is used to start the HSM cycle in the machine.
+    b_SP_M_REF_Cycle_Start      : BOOL; // This input is used to select the number of M-function (e.g. M151), which is used to start the REF cycle in the machine.
+    b_SP_M_END_Cycle_MON        : BOOL; // This input is used to select the number of M-function (e.g. M130), which is used to set the WP input bit "INT".
+    b_SP_Manual_Clamping_Tool      : BOOL; // Informs the SP that a Manual-Tool-Change (clamping) is executed by the machine operator. This input must be activated for the whole Tool-Change procedure. 
+                                        // During the Manual-Tool-Change the SP-Inputs WFR ans ACQ are automatically activated to deactivate SP-Monitoring (no alarm output).
+    b_SP_Manual_Unclamping_Tool    : BOOL; // Informs the SP that a Manual-Tool-Change (unclamping) is executed by the the machine operator. This input must be activated for the whole Tool-Change procedure. 
+                                        // During the Manual-Tool-Change the SP-Inputs WFR ans ACQ are automatically activated to deactivate SP-Monitoring (no alarm output).
+   
+    
+END_VAR
+
+
+VAR_OUTPUT
+    u32_ToWP_1of4           : DWORD;                            // Insert the PLC Output Address of the 1st 4 Byte of WP-Input Interface of current used WP-Channel.  
+    arr_WP_Out_1of4  AT  u32_ToWP_1of4 : ARRAY[0..3] OF BYTE;   // DWORD "u32_ToWP_1of4" can also be accessed as Array of Byte. 
+    u32_ToWP_2of4           : DWORD;                            // Insert the PLC Output Address of the 2nd 4 Byte of WP-Input Interface of current used WP-Channel. 
+    arr_WP_Out_2of4  AT  u32_ToWP_2of4 : ARRAY[0..3] OF BYTE;   // DWORD "u32_ToWP_2of4" can also be accessed as Array of Byte. 
+      
+    u32_TOWP_3of4         : DWORD;                              // Insert the PLC Output Address of the 3th 4 Byte of WP-Output Interface of current used WP-Channel. 
+    arr_WP_Out_3of4  AT  u32_ToWP_3of4 : ARRAY[0..3] OF BYTE;   // DWORD "u32_TOWP_3of4" can also be accessed as Array of Byte.
+    u32_TOWP_4of4         : DWORD;                              // Insert the PLC Output Address of the 4th 4 Byte of WP-Output Interface of current used WP-Channel. 
+    arr_WP_Out_4of4  AT  u32_ToWP_4of4 : ARRAY[0..3] OF BYTE;   // DWORD "u32_TOWP_4of4" can also be accessed as Array of Byte.
+    
+    b_FastIO_CTR            : BOOL; // Optional: FB-Output for CTR Fast-IO. Connect this FB-Input with the belonging PLC-Output address of WP-Input CTR.
+    
+    i16_WP_OpMode           : INT;  // This FB-Output contains the current Operation Mode of WattPilote (0-7).
+    
+    b_No_WP_Alarm           : BOOL; // This FB-Output is set if WP is not in alarm/warning state.
+    
+    // The following FB-Outputs are used to transfer WP-Alarms to the PLC. Each Bit of the DWORD or BYTE represents a specific WP-Alarm . See the Excel sheet "WP-Alarm_Warning-list" for details about the assignment of each Bit.
+    u32_WP_Alarms_1           : DWORD; // Output for WP-Alarms. This Fb4200-Output is used for the internal Wp Alarms. See the Excel sheet "WP-Alarm_Warning-list"
+    arr_Alarms_1 AT u32_WP_Alarms_1     : ARRAY[0..31] OF BOOL; // used to write on each single Bit of u32_WP_Alarms_1 (replaces slice-command in TIA-Portal)
+    
+    u32_WP_Alarms_2           : DWORD; // Output for WP-Alarms. Each Bit is a WP-Alarm. See the Excel sheet "WP-Alarm_Warning-list"
+    arr_Alarms_2 AT u32_WP_Alarms_2     : ARRAY[0..31] OF BOOL; // used to write on each single Bit of u32_WP_Alarms_2 (replaces slice-command in TIA-Portal)
+
+    u32_WP_Alarms_3           : DWORD; // Output for WP-Alarms. Each Bit is a WP-Alarm. See the Excel sheet "WP-Alarm_Warning-list"
+    arr_Alarms_3 AT u32_WP_Alarms_3     : ARRAY[0..31] OF BOOL; // used to write on each single Bit of u32_WP_Alarms_3 (replaces slice-command in TIA-Portal)
+
+    u32_WP_Alarms_4           : DWORD; // Output for WP-Alarms. Each Bit is a WP-Alarm. See the Excel sheet "WP-Alarm_Warning-list"
+    arr_Alarms_4 AT u32_WP_Alarms_4     : ARRAY[0..31] OF BOOL; // used to write on each single Bit of u32_WP_Alarms_4 (replaces slice-command in TIA-Portal)
+
+    // The following FB-Outputs are used to transfer WP-Warnings to the PLC. Each Bit of the DWORD or BYTE represents a specific WP-Warning . See the Excel sheet "WP-Alarm_Warning-list" for details about the assignment of each Bit.
+    u32_WP_Warnings_1         : DWORD; // Output for WP-Warnings. Each Bit is a WP-Warning. See the Excel sheet "WP-Alarm_Warning-list" or the document "WattPilote Evolution Integration - Siemens Sinumerik 840D SL - Description of FB4200"
+    arr_Warnings_1 AT u32_WP_Warnings_1  : ARRAY[0..31] OF BOOL;  // used to write on each single Bit of u32_WP_Warnings_1 (replaces slice-command in TIA-Portal)
+    
+    u8_WP_Warnings_2          : BYTE; // Output for WP-Warnings. Each Bit is a WP-Warning. See the Excel sheet "WP-Alarm_Warning-list" or the document "WattPilote Evolution Integration - Siemens Sinumerik 840D SL - Description of FB4200"
+    arr_Warnings_2 AT u8_WP_Warnings_2  : ARRAY[0..7] OF BOOL;  // used to write on each single Bit of u8_WP_Warnings_2 (replaces slice-command in TIA-Portal)
+
+
+    b_NC_EmergencyProgram   : BOOL; // Flag to trigger a user defined emergency retreat program as reaction to WP-Alarm.
+    b_NC_Feed_ReadIn_Stop   : BOOL; // Flag to execute machine feed disable and read-in disable while Bit is set. This FB-Output has to be connected with DBxx.DBX6.0 AND DBxx.DBX6.1
+    b_NC_Read_In_Stop       : BOOL; // Flag to execute machine read-in disable while Bit is set. This FB-Output has to be connected with DBxx.DBX6.1
+    b_NC_Feed_Disable       : BOOL; // Flag to execute machine feed disable while Bit is set DBxx.DBX6.0.
+    
+    b_Feed_SpindleOV_to_100 : BOOL; // This FB-Output is set, when the PLC machine program should force the override for axis feed and spindle speed to 100% (default value during monitoring).
+    
+    u8_AC_OV_Value          : BYTE; // This FB-Output displays the feed rate override value (WP-Output Byte 7 - F07_00). This value represents the percentage to be applied to the feed rate to obtain the AC power target of the spindle.
+                                    // This FB-Output is only used in case of Adaptive Control.
+                                    
+    r32_WP_AbsPower_Watt    : REAL; // Current (absolute) power value measured by WattPilote (e.g. this can be used to display current power on HMI).
+            
+    b_Traffic_light_red     : BOOL; // Flag to activate red machine traffic light, when monitoring is disabled.
+    b_Traffic_light_green   : BOOL; // Flag to activate green machine traffic light, when monitoring is enabled.
+    b_Traffic_light_flash   : BOOL; // Flag to activate flashing machine traffic light, when WattPilote is in alarm.
+    
+    u8_Active_Block_NR        : Byte;         //This output show the number of current active block 
+    b_Adaptive_Control_Activated : BOOL; // Flag indicating that adaptive control is activated. this Flag is set when Bit SLW or ACE is activated.
+    arr_Active_Block_NR AT u8_Active_Block_NR : ARRAY[0..7] OF BOOL; // Overlay for bit access to u8_Active_Block_NR
+    i16_Alarm_Message_Nr    : INT;        // This output is used to transfer the number of the current active alarm message to the PLC. 
+     
+END_VAR
+
+
+VAR
+    WattPilote : STRUCT         // Data structure for WattPilote (WP) I/O This structure is used to transfere Data from PLC to WP and back
+        FromWP : STRUCT         // WP Outputs/ PLC Inputs
+            
+            // Block 1: WattPilote: Byte 0+1
+            STP         : BOOL; // Immediate machining stop: It is used to active an immediate machining stop through a fast NC Input. It is ON when WattPilote detects a broken tool (BRK Input ON), no tool, no part or a double machining (NOT Input ON).
+            ALR         : BOOL; // WattPilote alarm: (low active) is deactivated for any alarm detection and must inevitably stop the machine.
+                                // Combined with WRN, BRK, NOT, CNT and SPN the machine control can read the type of alarm. 
+            BLC         : BOOL; // WattPilote Byte 0+1 used to transfer the block number from WP to PLC.
+            CNT         : BOOL; // Number of machining cycles completed: activated when the machining cycle counter has reached the programmed maximum value. The counter is set back to zero when the tool is changed.
+            BRK         : BOOL; // Broken tool: activated when WP has detected a power higher than the upper power threshold or than the absolute power threshold. It is also activated when the variations in power are higher than the derivative threshold.
+            N0T         : BOOL; // No tool Input / no part / double machining: activated when WP has detected a power lower than the minimum power threshold or an energy lower than the minimum energy threshold.
+            WRN         : BOOL; // Worn tool: activated when WP has detected an increasing energy higher than the programmed wear threshold. 
+                                // The ALR Input status makes possible to differentiate the first worn tool alarm (ALR Input ON) from the worn tool alarm (ALR Input OFF).
+            SPN         : BOOL; // Input spindle error: activated when WP has detected a difference between the instantaneous idle power and the learning idle power outside the parameterized limits.
+            OM1         : BOOL; // OM3: MSB, OM1: LSB: indicating the WattPilote function mode:
+            OM2         : BOOL; // They are controlled by the machine control (PLC) Outputs or by the monitoring software (WP-Visu-C or Visu-CN-C).
+            OM3         : BOOL;
+            CHG         : BOOL; // Material changing: activated when WP has detected a power or a power variation larger than the material changing thresholds. 
+            WRK         : BOOL; // Machining Input in process: activated when WP has detected a power higher than the minimum control threshold.
+            MON         : BOOL; // Monitoring: Displays the CTR Output status. It must be checked by the machine control after having activated CTR to make sure that WP is in monitoring mode.
+            SPE         : BOOL; // special mode: Shows that WP is running in a special mode. Combined with RDY and ALR Inputs, it is possible to know the WP status.
+            RDY         : BOOL; // ready for machining monitoring: Shows that WattPilote is ready for monitoring a machining cycle. This Input, combined with SPE and ALR, allows reading of the WattPilote status or the operation mode.
+            
+            // Block 2: Compatibility with WattPilote Evolution: Byte 2+3
+            u16_AbsPower: WORD; // P00-P15: (16-bit) value represents the absolute power signal where 0xFFFF is 100% of shunt value. It is updated every 5 milliseconds. The first Byte is the MSB and the second Byte is the LSB.  
+            
+            // Block 3: SafePilote: Byte 4+5 (not in use)
+            EMG         : BOOL; // Emergency stop machine - interrupt from WP
+            ABT         : BOOL; // monitoring cycle aborted 
+            MCC         : BOOL; // Machine condition completed 
+            MCA         : BOOL; // Machine condition acquision output
+            SLW         : BOOL; // Reduced feed rate 
+            WFP         : BOOL; // 
+            CDL         : BOOL; // Colission monitoring active (the system is not in setting mode)
+            TGB         : BOOL; // Toggle bit (1 Hz realise - 0,5 Hz Factory)
+            u8_AL07_00  : BYTE; // Code of the current active alarm (AL7 ... AL0: Alarm code) or current active warning (WR7 ... WR0: Warning code).
+                                // This Byte is updated when an alarm/warning is detected and can be used to display the current active alarm/warning on the machine HMI.
+
+            //Block 4: Override/Block: Byte 6+7
+            BL0         : BOOL; // indicating the current active block (B7 ... B0: Block number).
+            BL1         : BOOL; 
+            BL2         : BOOL; 
+            BL3         : BOOL; 
+            BL4         : BOOL;  
+            BL5         : BOOL; 
+            BL6         : BOOL; 
+            ACE         : BOOL; // Adaptive control engaged (OVA : override active)
+            u8_AC07_00  : BYTE; // Adaptive control value (OV7 ... OV0: Override value)
+            
+            // Block 5: In extended mode: Byte 8+9
+            u16_OptionA : WORD; //Option A is used to provide the current vibration value (bar graph in user interface)
+
+            // Block 6: In extended mode: Byte 10+11
+            u16_OptionB : WORD;
+
+            // Block 7: In extended mode: Byte 12+13
+            u16_OptionC : WORD;
+
+            // Block 8: In extended mode: Byte 14+15
+            u16_OptionD : WORD;
+        END_STRUCT;
+        
+        ToWP : STRUCT           // WP Inputs/ PLC Outputs
+            
+            // Block 1: WattPilote: Byte 0+1
+            TOC         : BOOL; // Validation of tool change: Gives information that a tool has been changed.
+            ACQ         : BOOL; // Alarm acknowledgement Output: When the system is not monitoring (CTR not activated), the alarms presented on WattPilote are cancelled using this Output. Must remain ON for a minimum time of 50 ms.
+            MD_3        : BOOL; // MD3, MD2, MD1: Selection Outputs of the operation mode. They are read on the rising edge of the MDS Output and coded as shown in document "WP_Evolution_Single - IntegrationManual".
+            MD_2        : BOOL; // MD3: MSB, MD1: LSB
+            MD_1        : BOOL;
+            MDS         : BOOL; // Validation Output of the operation mode: must remain in that status for 50 ms minimum.
+            ENA         : BOOL; // Validation Output of the monitoring channel: allows the machining monitoring. It can only be deactivated when the WattPilote is not used.
+            CTR         : BOOL; // Machining monitoring Output: must remain activated during all time of the machining to control the machining.
+            PB1         : BOOL; //Process number or block number
+            PB2         : BOOL; 
+            PB3         : BOOL;
+            PB4         : BOOL;
+            PB5         : BOOL;
+            PB6         : BOOL;
+            PB7         : BOOL;
+            LDB         : BOOL; //Load block
+            
+            // Block 2: Revolution: Byte 2+3 
+            u16_S15_00  : WORD; // Spindle speed in rpm (S15 to S08 is MSB)
+            
+            // Block 3: SafePilote: Byte 4+5
+            ECycle      : BOOL; // End of cycle monitoring
+            ACD         : BOOL; // Adaptive control disable (OVD : Override disable)
+            M00         : BOOL; // Pause in the part program
+            G00         : BOOL; // Fast feed rate
+            TCC         : BOOL; // Tool change cycle ( is not TOC tool change = new tool)
+            REF         : BOOL; // Rewquest new reference data for HSM
+            HSM         : BOOL; // Holder seat monitoring
+            MCM         : BOOL; // Machine condition monitoring
+            u8_T07_00   : Byte; // Tool number (1 .. 250)                 
+          
+            
+            //Block 4: Feed rate F15 .. F00: Byte 6+7 
+            u16_F15_00  :WORD; // Feed rate in mm/min (F15 to F08 is MSB)
+            
+            // Block 5: In extended mode: Byte 8+9
+            u16_TargetOverride : WORD; // Target Override, not available for Rack system
+
+            // Block 6: In extended mode: Byte 10+11
+            u16_X_Axis_Postion : WORD;  // X axis absolute position, not available for Rack system
+
+            // Block 7: In extended mode: Byte 12+13
+            u16_Y_Axis_Postion : WORD;  //Y axis absolute position, not available for Rack system
+
+            // Block 8: In extended mode: Byte 14+15
+            u16_Z_Axis_Postion : WORD;  //Z axis absolute position, not available for Rack system
+
+        END_STRUCT;
+    END_STRUCT;
+    
+    //arr_WP_InOut  AT  WattPilote : ARRAY[0..15] OF BYTE; // Static structure "WattPilote" can be also accessed as array of Byte. This is mandatory for access to WP-Interface.
+    arr_WP_InOut  AT  WattPilote : ARRAY[0..31] OF BYTE; // Static structure "WattPilote" can be also accessed as array of Byte. This is mandatory for access to WP-Interface.
+    
+    WP : STRUCT     // This structure is used to store WattPilote control variables, e.g. status information or detection of signals rising or falling edge.
+        u8_Curve_No             : BYTE := 0;    // PB-Number for transfer to WP.
+        u8_Block_No             : BYTE := 0;    // PB-Number for transfer to WP.
+        u8_Func_No              : BYTE := 0;    // Function-Number for transfer to WP.
+        u8_MD_No                : BYTE := 0;    // MD-Number for transfer to WP.
+
+        b_DeactMode             : BOOL := 0;    // This Bit is set, when WP is in Operation Mode 4 (WP is deactivated). Start machining monitoring function (M124) is bypassed and WattPilote does not process the PLC output CTR.
+        b_CTR_Allowed           : BOOL := 0;    // Flag to indicate that CTR must be activated (start monitoring). Typically this Bit will be set via M-function (M124).
+        b_CTR_Allowed_old       : BOOL := 0;    // Save value of  "WP.b_CTR_Allowed" for detection of rising edge.
+        b_LDB_Allowed           : BOOL := 0;    // This internal bit is set when the WP is not in Monitoring and the M-Fuction (Example M129) is activated
+        b_HSM_Allowed           : BOOL := 0;    // This internal bit is set when and the M-Fuction (Example M150) is activated
+        b_MCM_Allowed           : BOOL := 0;    // This internal bit is set when and the M-Fuction (Example M140, or M141) is activated
+        
+        b_MDS                   : BOOL := 0;    // Flag to activate TON-function for MDS.
+        b_MDS_Request           : BOOL := 0;    // Flag to indicate that activation of MDS is requested from the FB-Inputs.
+        b_LDB                   : BOOL := 0;    // Flag to indicate that a block number is being transferred to WP.
+               
+        b_monitoring_enable     : BOOL;         // This Bit is set, when WP monitoring is enabled (no Alarm, no special Mode, MD=0, no WP_OFF).                                                                                      
+        b_Monitoring_forbidden  : BOOL := 0;    // intern Bit: Machining monitoring forbidden  
+        b_ModeChange_forbidden  : BOOL := 0;    // intern Bit: Mode Change forbidden
+        b_HSM_forbidden         : BOOL := 0;    // intern Bit:    holder seat monitoring is forbidden.
+        b_MCM_forbidden         : BOOL  := 0;   // This internal Bit is set when SP-Input MCM should be activated while an alarm (ALR=1).
+        b_LDB_forbidden         : BOOL := 0;    // This bit is set when there is alram, Monitoring is active, or wp is not redy        
+        b_TCC_forbidden         : BOOL := 0;    // This internal Bit is set when an alarm is activated while start of Tool Change Cycle.
+        b_Alarm_TCC_Forbidden   : BOOL := 0;    // intern Bit: This Bit is set "=1" when a Tool Change Cycle is currently forbidden (e.g. because of active alarm, wrong PB-Number, wrong MD-Number, etc.)
+        b_Alarm_MCM_Forbidden   : BOOL := 0;    // intern Bit: This Bit is set "=1" when Machine Condition Monitoring is currently forbidden (e.g. because of active alarm, wrong PB-Number, wrong MD-Number, etc.)
+        b_Alarm_Monitoring_forbidden    : BOOL := 0;    // intern Bit: This Bit is set "=1" when monitoring is currently forbidden (e.g. because of wrong PB-Number, wrong MD-Number, WP-Alarm, etc.)
+        b_Alarm_ModeChange_forbidden    : BOOL := 0;    // intern Bit: This Bit is set "=1" when mode change is currently forbidden (e.g. because of wrong PB-Number, wrong MD-Number, WP-Alarm, etc.)
+
+        b_Missing_Handshake     : BOOL := 0;    // intern Bit: Currently No communication with WattPilote (CTR-MON handshake missing)
+        b_Wrong_Machining_No    : BOOL := 0;    // intern Bit: Wrong Machining Number: PB must be 1 <= PB-Number <= 120 (Monitoring not possible)
+        b_Wrong_Block_No        : BOOL := 0;    // intern Bit: Wrong Block Number: PB must be 1 <= PB-Number <= 120 (Monitoring not possible)
+        b_Wrong_Function_No     : BOOL := 0;    // intern Bit: Wrong Function Number: PB must be 1 <= PB-Number <= 120 (Monitoring not possible)
+        b_Wrong_OpMode_No       : BOOL := 0;    // intern Bit: Wrong Operation Mode Number: MD must be 0 <= MD-Number <= 7 (Mode Change not possible)
+
+        b_Alarm_System          : BOOL := 0;    // intern Bit: This Bit is set "=1" when WP currently has a System-Alarm (System failure)
+        b_General_Alarm         : BOOL := 0;    // intern Bit: general WP-Alarm
+        b_Wrong_Tool_NR         : BOOL := 0;    // intern Bit: Wrong Tool Number: Tool Number must be 1 <= Tool Number <= 250 (Monitoring not possible)
+        b_Alarm_Learning        : BOOL := 0;    // intern Bit: This Bit is set "=1" when WP currently has an alarm related to the learning phase (e.g. learning not completed, learning failed, etc.)
+        b_Alarm_Missing_Handshake      : BOOL := 0;    // intern Bit: This Bit is set "=1" when there is currently no communication with WattPilote (missing handshake)
+        
+        b_Alarm_WattPilote_OFF         : BOOL := 0;    // intern Bit: This Bit is set "=1" when WP is currently deactivated (WP_OFF=1)
+        b_Alarm_Channel_disable        : BOOL := 0;    // intern Bit: This Bit is set "=1" when the current WP-Channel is disabled in the WP-Software (WP-Channel OFF).
+        b_Alarm_CDL_Disable            : BOOL := 0;    // intern Bit: This Bit is set "=1" when the CDL is disabled
+              
+        r32_Rated_Power_Factor  : REAL;         // This factor is used to scale the current measured power output value from WP . 
+                                                // WP.r32_Rated_Power_Factor = r32_WP_Rated_Power_W / 2^16
+                                                // Used to calculate FB-Output r32_WP_AbsPower_Watt = WattPilote.FromWP.u16_AbsPower * WP.r32_Rated_Power_Factor  
+        
+        b_MDX_feedback          : BOOL := 0;    // Flag to indicate that WattPilote is in the same mode as new requested Mode
+        
+        b_block_nr_selected     : BOOL := 0;    // This internal Bit is set when a block number is selected for monitoring via M-function (e.g. M129) and reset when the block number is transferred to WP (LDB=1).
+        b_function_nr_selected  : BOOL := 0;    // Depending on the status of WP-Input MCM, the WP-Inputs PB1-7 are read as Function-Number (MCM on) or Block/Curve-Number (MCM off)                                    
+        b_WP_Ready_Latch        : BOOL := 0;    // This Bit is set when WP is ready for monitoring (WP.FromWP.RDY=1) and reset when WP is not ready anymore (WP.FromWP.RDY=0). This Bit is used for edge detection of WP-Ready-Signal.
+        
+    END_STRUCT;
+    
+    
+    TP_MDS_Instance             : SFB3;         // TP  function for MDS
+    TON_MDS_Instance            : SFB4;         // TON function for MDS
+    TON_ACQ_Instance            : SFB4;         // TON function for ACQ
+    TP_ACQ_Instance             : SFB3;         // TP  function for ACQ
+    TON_Monitoring_Instance     : SFB4;         // TON function for Monitoring 
+    TON_CTR_MON_Instance_1      : SFB4;         // TON function 1 for WP CTR-MON handshake (alarm handling)
+    TON_CTR_MON_Instance_2      : SFB4;         // TON function 2 for WP CTR-MON handshake (alarm handling)
+    TP_Ackn_Instance            : SFB3;         // TP  function for activation of internal Bit "b_NC_AlarmAckn"
+
+    TOF_Instance_MTOC           : SFB5;         // TOF function for manual Tool-Change
+    TON_LDB_Instance            : SFB4;         // TON function for LDB.
+    TON_MCM_Stop_Instance       : SFB4;         // TON function for MCM stop delay
+    TON_MCM_Instance            : SFB4;         // TON function for MCM monitoring time delay
+    TON_HSM_Instance            : SFB4;         // TON function for HSM monitoring time delay
+    TP_Pre_LDB_Instance         : SFB3;         // TP for pre LDB activation
+    
+    b_G0_active                 : BOOL  := 1;   // This Bit is set when G0-Function is activated. It will be reset when a different G-Function in G-Group 1 is activated.
+    b_Program_In_Progress       : BOOL  := 0;   // This internal Bit is set when the machine executes a part program in mode Auto or in mode MDI. M00 (stop program execution), M02 code (end of program) and abort of part program reset this Bit.
+    b_Manual_Tool_Change        : BOOL  := 0;
+    b_Tool_Change_Cycle         : BOOL  := 0;
+    
+    stat_NC_EmergencyProgram    : Bool   := 0;   // This variable is used to save the current status of the emergency program
+    b_Alarm_Load_Block          : BOOL  := 0;   // This bit is set when WP output "BLC" is set.
+    b_Abort_Part_Program        : BOOL  := 0;
+    b_Working_Feed_Rate         : BOOL  := 0;
+    b_TCC_started               : BOOL  := 0;   // This Bit is set, when M-function (e.g. M134) to start a Tool Change Cycle is detected.
+    b_TCC_ended                 : BOOL  := 0;   // This Bit is set, when M-function (e.g. M135) to end a Tool Change Cycle is detected.
+    b_HSM_Cycle                 : BOOL  := 0;   // This Bit is set, when M-function (e.g. M150) to start HSM Cycle is detected.
+    b_REF_Cycle                 : BOOL  := 0;   // This Bit is set, when M-function (e.g. M151) to start REF Cycle is detected.
+    i_WP_AL_Byte_No             : INT   := 0;   // This variable is used to save the byte number of the WP-Alarm-Byte, where the first alarm bit is located. 
+    b_PLC_Message               : BOOL  := 0;   // This bit is set, when a message is received from the PLC.
+    b_Start_MCM_Spindle         : BOOL  := 0;   // This Bit is set, when MCM monitoring of spindle is started (e.g. via M140)
+    b_Start_MCM_Axis            : BOOL  := 0;   // This Bit is set, when MCM monitoring of axis is started (e.g. via M141)
+    b_HSM_Cycle_old             : BOOL  := 0;   // Previous cycle value of b_SP_M_HSM_Cycle_Start for edge detection
+    b_REF_Cycle_old             : BOOL  := 0;   // Previous cycle value of b_SP_M_REF_Cycle_Start for edge detection
+END_VAR
+
+
+VAR_TEMP
+    i                           : INT;          // loop variable
+    i16_used_Channel_DB         : INT;          // Number of used Channel DB. Calculated with Input-var "i16_NC_Channel_No"
+    b_Mode_Auto                 : BOOL;         // DB11.DBX[6,0] is set --> Auto-Mode used 
+    b_Mode_MDI                  : BOOL;         // DB11.DBX[6,1] is set --> MDA-Mode used 
+    b_M00_M01                   : BOOL;         // Channel-DB BYTE/Bit[32,5]: "=1" means NC-program stopped/paused.
+    b_M02_M30                   : BOOL;         // Channel-DB BYTE/Bit[33,5]: "=1" means NC-program ended/ end is reached.
+    b_ResButton_pressed         : BOOL;         // Channel-DB BYTE/Bit[7,7] : "=1" means Reset-Button is currently pressed.
+    b_Start_Machining_Cycle     : BOOL;         // Channel-DB BYTE/Bit[7,1] : "=1" means button "CYCLE START" on MCP is currently pressed.
+   
+    b_NC_AlarmAckn              : BOOL;         // intern Bit: b_WP_SP_Alarm_Ackn OR b_ResButton_pressed                                                                      
+   
+    b_AlarmAckn_in_Process      : BOOL;         // This Bit is set when WP alarm acknowledgement is executed.    
+    
+    u8_OM                       : BYTE;                 // Only 3 Bit used for decoding WP Operation-Mode 
+    arr_OM  AT u8_OM            : ARRAY[0..7] OF BOOL;  // used to write each Bit of arr_OM from WP (WattPilote.FromWP.OM1..3) directly in the Byte u8_OM -> i16_WP_OpMode  
+
+    u16_Override_Value          : DINT;         // This variable is used to save the calculated override value for the feed rate or power target to be transferred to WP.
+                                                //It is calculated based on the FB-Input value "u16_AC_PowerTarget" and the current rated power factor "WP.r32_Rated_Power_Factor".
+    b_MCM_OFF                   : BOOL;         // This Bit is set, when MCM is deactivated deu to M-Function (e.g., M142), reset button, or M02_M30.    
+    
+END_VAR
+
+
+
+
+//*********************************************************************************************************  
+BEGIN
+                                                                                                                                                                              
+//********************************************************                                                                                                                      
+// Initialize all VAR_TEMP variables.                                                                                                                                           
+// VAR_TEMP uses the L-stack which is NOT zero-initialized between OB calls in S7-300/400.  
+  i                       := 0;                                                                                                                                                            
+  i16_used_Channel_DB     := 0;                                                                                                                                                            
+  b_Mode_Auto             := FALSE;                                                                                                                                                        
+  b_Mode_MDI              := FALSE;                                                                                                                                                        
+  b_M00_M01               := FALSE;                                                                                                                                                        
+  b_M02_M30               := FALSE;                                                                                                                                                        
+  b_ResButton_pressed     := FALSE;
+  b_Start_Machining_Cycle := FALSE;
+  b_NC_AlarmAckn          := FALSE;
+  b_AlarmAckn_in_Process  := FALSE;
+  u8_OM                   := 0;
+  u16_Override_Value      := 0;
+  b_MCM_OFF               := FALSE;
+//********************************************************         
+//*****Transfer data from FB-Input to temp. array "arr_WP_InOut"*****
+// The data in this array can also be accessed with internal structure "WattPilote.FromWP"
+           
+    arr_WP_InOut[0] := arr_WP_In_1of4[0];        //1st byte of WattPilote
+    arr_WP_InOut[1] := arr_WP_In_1of4[1];
+    arr_WP_InOut[2] := arr_WP_In_1of4[2];
+    arr_WP_InOut[3] := arr_WP_In_1of4[3];
+    arr_WP_InOut[4] := arr_WP_In_2of4[0];
+    arr_WP_InOut[5] := arr_WP_In_2of4[1];
+    arr_WP_InOut[6] := arr_WP_In_2of4[2];
+    arr_WP_InOut[7] := arr_WP_In_2of4[3];        //8th byte of WattPilote
+    
+    IF b_Extended_Mode THEN
+        arr_WP_InOut[8] := arr_WP_In_3of4[0];        //9th byte of WattPilote
+        arr_WP_InOut[9] := arr_WP_In_3of4[1];
+        arr_WP_InOut[10] := arr_WP_In_3of4[2];
+        arr_WP_InOut[11] := arr_WP_In_3of4[3];
+        arr_WP_InOut[12] := arr_WP_In_4of4[0];
+        arr_WP_InOut[13] := arr_WP_In_4of4[1];
+        arr_WP_InOut[14] := arr_WP_In_4of4[2];
+        arr_WP_InOut[15] := arr_WP_In_4of4[3];        //15th byte of WattPilote    
+    END_IF;
+
+//********************************************************
+//
+    IF WP.b_MDX_feedback THEN
+        WP.b_MDS_Request := 0;
+    END_IF;
+    
+//********************************************************  
+//*****Get Data fom FB-Input variables***** 
+   
+    // Signal to start CTR from pre-FB                   
+    IF b_WP_StartMonitoring THEN
+        WP.b_CTR_Allowed := 1;
+    END_IF; 
+   
+   
+    // Assign intern Bit for WP Op-Mode 4 (monitoring deactivated)
+    WP.b_DeactMode := NOT WattPilote.FromWP.OM1 AND NOT WattPilote.FromWP.OM2 AND WattPilote.FromWP.OM3;
+         
+    IF NOT b_WP_OFF THEN
+   
+        //********************************************************
+        // Read curve machining number (curve-Number) from FB-Input*****  
+        
+        WP.u8_Curve_No := u8_WP_curve_NO;
+        
+        IF b_WP_Curve_Error THEN
+            WP.b_Wrong_Machining_No := 1;
+        END_IF; 
+        
+        //********************************************************
+        // Read block machining number (block-Number) from FB-Input*****  
+
+        WP.u8_Block_No := u8_WP_Block_NO;
+
+        IF b_WP_Block_Error THEN
+            WP.b_Wrong_Block_No := 1;
+        END_IF;
+
+        //********************************************************
+        // Read function machining number (function-Number) from FB-Input*****
+        WP.u8_Func_No := u8_SP_Func_NO;
+
+        IF b_SP_Func_Error THEN
+            WP.b_Wrong_Function_No := 1;
+        END_IF;
+
+        //******************************************************** 
+        // Read Operation Mode Number (MD-Number) from FB-Input*****
+        
+        IF NOT WP.b_MDS THEN
+            WP.u8_MD_No := u8_WP_MD_No; 
+        END_IF;                         
+        
+        IF b_Mode_Error THEN
+            WP.b_Wrong_OpMode_No := 1;
+        END_IF;
+        
+        //******************************************************** 
+        // Read Adaptive Control Power Target from FB-Input
+        // Select data for Block 4 (Byte 6 + 7) 
+        // Use Adaptive Control Power Target
+        // Use Scaled Feed Rate from Revolution Mode 
+        // By using the FB4220 the feed rate is scaled to ensure that the value is in range 0 ... 65000 mm/min
+        IF b_Extended_Mode THEN
+            // Extended Mode: Block 4 always gets FeedRate, Block 5 always gets Override Value
+            IF r32_WP_Rated_Power_W > 0.0 THEN
+                WP.r32_Rated_Power_Factor := r32_WP_Rated_Power_W / 65536;
+                u16_Override_Value := TRUNC(WORD_TO_DINT(u16_AC_PowerTarget) / WP.r32_Rated_Power_Factor);
+                IF U16_Override_Value <= 65535 THEN
+                    WattPilote.ToWP.u16_TargetOverride := DINT_TO_WORD(u16_Override_Value);
+                ELSE
+                    WattPilote.ToWP.u16_TargetOverride := 65535;
+                END_IF;
+            ELSE
+                u16_Override_Value := 0;
+                WattPilote.ToWP.u16_TargetOverride := 0;
+            END_IF;
+            WattPilote.ToWP.u16_F15_00 := u16_FeedRate_In;
+
+        ELSE
+            // Normal Mode: existing logic unchanged
+            IF r32_WP_Rated_Power_W > 0.0 AND NOT b_FeedRate_TargetOverride THEN
+                WP.r32_Rated_Power_Factor := r32_WP_Rated_Power_W / 65536;
+                u16_Override_Value := TRUNC(WORD_TO_DINT(u16_AC_PowerTarget) / WP.r32_Rated_Power_Factor);
+                IF U16_Override_Value <= 65535 THEN
+                    WattPilote.ToWP.u16_F15_00 := DINT_TO_WORD(u16_Override_Value);
+                ELSE
+                    WattPilote.ToWP.u16_F15_00 := 65535;
+                END_IF;
+            ELSIF NOT b_FeedRate_TargetOverride THEN
+                u16_Override_Value := 0;
+                WattPilote.ToWP.u16_F15_00 := 0;
+            END_IF;
+            IF b_FeedRate_TargetOverride THEN
+                WattPilote.ToWP.u16_F15_00 := u16_FeedRate_In;
+            END_IF;
+        END_IF;
+
+        //******************************************************** 
+        // Transfer Tool Number from NCK input to WattPilote structure
+        IF b_SP_Tool_NR_Error THEN
+            WP.b_Wrong_Tool_NR := 1;
+        END_IF;
+        
+        IF NOT WP.b_Wrong_Tool_NR THEN
+            WattPilote.ToWP.u8_T07_00 := u8_SP_Tool_NO;
+        END_IF;
+
+
+        //********************************************************
+    ELSE
+        // Set Curve, Block, Function Number =0
+        WP.u8_Curve_No := 0;
+        WP.u8_Block_No := 0;
+        WP.u8_Func_No := 0;
+
+        // Set MD-Number =0
+        WP.u8_MD_No := 0;
+        
+        // Set Feed rate =0
+        WattPilote.ToWP.u16_F15_00 := 0;
+        
+        // Set Number/Mode error =0
+        WP.b_Wrong_Machining_No := 0;
+        WP.b_Wrong_OpMode_No    := 0;
+        WP.b_Wrong_Block_No     := 0;
+        WP.b_Wrong_Function_No  := 0;
+        // Clear Tool Number for a clean bypass state
+        WP.b_Wrong_Tool_NR      := 0;
+        WattPilote.ToWP.u8_T07_00 := 0;
+        
+    END_IF;
+    //********************************************************
+    // Set WP_Ready_Latch when WP is ready for monitoring (RDY=1). This latch is used to detect the rising edge of WP-Ready-Signal for 
+    // activation of MDS and for blocking the activation of MDS when WP is not ready.
+    IF WattPilote.FromWP.RDY THEN
+      WP.b_WP_Ready_Latch := 1;
+    END_IF;
+
+// Calculate the belonging Channel-DB, depending on the used NC-Channel number
+    i16_used_Channel_DB := i16_NC_Channel_No + 20;
+
+//********************************************************
+// Set or reset the adaptive control bit ACD
+// two MCP Buttom are used to disable or disable the ACD bit see FB4222
+
+    WattPilote.ToWP.ACD := b_AC_OFF;
+    
+//********************************************************   
+//*****WP Operation Mode*****
+// Read Operation Mode from WP (OM1, OM2, OM3) and write to FB-Output "i16_WP_OpMode"     
+    
+    // Reset intern variable, to avoid incorrect values
+    u8_OM   := 0;
+    
+    arr_OM[2] := WattPilote.FromWP.OM3;
+    arr_OM[1] := WattPilote.FromWP.OM2;
+    arr_OM[0] := WattPilote.FromWP.OM1;
+    i16_WP_OpMode := BYTE_TO_INT(u8_OM); 
+
+    
+//********************************************************       
+//*****WP ENA-Input*****           
+// Transfere ENA to WP
+    WattPilote.ToWP.ENA := NOT b_WP_OFF; 
+
+
+//********************************************************
+//*****WP LDB-Input*****  
+
+    WP.b_block_nr_selected := WP.b_LDB_Allowed AND NOT WP.b_CTR_Allowed AND WattPilote.FromWP.RDY AND NOT WP.b_General_Alarm;
+
+    IF NOT WP.b_CTR_Allowed AND b_WP_M_LDB_On THEN
+
+    WP.b_LDB_Allowed := 1;
+
+    END_IF;
+    
+    // Lead time: Waiting after number assignment to WP
+    // LDB can only be activated when WP is ready and no general alarm is active
+    TP_Pre_LDB_Instance(IN := WP.b_LDB_Allowed AND NOT b_WP_OFF AND WattPilote.FromWP.RDY AND NOT WP.b_General_Alarm , PT := TIME_TP_LDB_MS);
+    WattPilote.ToWP.LDB := TP_Pre_LDB_Instance.Q;
+
+    IF WP.b_LDB_Allowed AND NOT b_WP_OFF THEN    
+            
+        // LDB is forbidden when: WP alarm active during monitoring, or WP not ready and deactivated
+        IF (WattPilote.FromWP.RDY AND (NOT (WattPilote.FromWP.ALR OR b_FastIO_ALR) OR WattPilote.FromWP.MON)) OR (NOT WattPilote.FromWP.RDY AND WP.b_DeactMode) THEN
+            WP.b_LDB_forbidden := 1;
+        END_IF;
+    END_IF;
+    
+    // TP timer: LDB pulse width = TIME_TON_LDB_MS
+    TON_LDB_Instance( IN := WattPilote.ToWP.LDB, PT := TIME_TON_LDB_MS);
+    WP.b_LDB := TON_LDB_Instance.Q;
+
+    // Alarm if BLC active together with ALR after LDB was set
+    b_Alarm_Load_Block := WP.b_LDB AND  WattPilote.FromWP.BLC AND NOT (WattPilote.FromWP.ALR OR b_FastIO_ALR);
+    // LDB is reset when: BLC active together with Alarm (ALR=0), or WP not ready and deactivated, or LDB pulse ended
+    IF (WattPilote.FromWP.BLC AND (WattPilote.FromWP.ALR AND b_FastIO_ALR)) OR b_Alarm_Load_Block OR WP.b_LDB_forbidden 
+        OR (WattPilote.ToWP.LDB AND ((arr_WP_InOut[6] AND 16#7F)=(arr_WP_InOut[17] AND 16#7F)) ) THEN
+
+        WP.b_LDB_Allowed := 0;
+        WP.b_LDB_forbidden := 0;
+    END_IF;    
+
+//******************************************************** 
+// *****Machining Number (PB-Number) to WP*****   
+                           
+    WattPilote.ToWP.PB1 := (((WP.u8_Curve_No AND  1) = 1) AND NOT WP.b_block_nr_selected AND NOT WP.b_function_nr_selected)
+                        OR (((WP.u8_Func_No AND  1) = 1) AND NOT WP.b_block_nr_selected AND WP.b_function_nr_selected)
+                        OR (((WP.u8_Block_No AND  1) = 1) AND WP.b_block_nr_selected AND NOT WP.b_function_nr_selected);
+
+    WattPilote.ToWP.PB2 := (((WP.u8_Curve_No AND  2) = 2) AND NOT WP.b_block_nr_selected AND NOT WP.b_function_nr_selected)
+                        OR (((WP.u8_Func_No AND  2) = 2) AND NOT WP.b_block_nr_selected AND WP.b_function_nr_selected)
+                        OR (((WP.u8_Block_No AND  2) = 2) AND WP.b_block_nr_selected AND NOT WP.b_function_nr_selected);
+
+    WattPilote.ToWP.PB3 := (((WP.u8_Curve_No AND  4) = 4) AND NOT WP.b_block_nr_selected AND NOT WP.b_function_nr_selected)
+                        OR (((WP.u8_Func_No AND  4) = 4) AND NOT WP.b_block_nr_selected AND WP.b_function_nr_selected)
+                        OR (((WP.u8_Block_No AND  4) = 4) AND WP.b_block_nr_selected AND NOT WP.b_function_nr_selected);
+
+    WattPilote.ToWP.PB4 := (((WP.u8_Curve_No AND  8) = 8) AND NOT WP.b_block_nr_selected AND NOT WP.b_function_nr_selected)
+                        OR (((WP.u8_Func_No AND  8) = 8) AND NOT WP.b_block_nr_selected AND WP.b_function_nr_selected)
+                        OR (((WP.u8_Block_No AND  8) = 8) AND WP.b_block_nr_selected AND NOT WP.b_function_nr_selected);
+
+    WattPilote.ToWP.PB5 := (((WP.u8_Curve_No AND 16) = 16) AND NOT WP.b_block_nr_selected AND NOT WP.b_function_nr_selected)
+                        OR (((WP.u8_Func_No AND 16) = 16) AND NOT WP.b_block_nr_selected AND WP.b_function_nr_selected)
+                        OR (((WP.u8_Block_No AND 16) = 16) AND WP.b_block_nr_selected AND NOT WP.b_function_nr_selected);
+
+    WattPilote.ToWP.PB6 := (((WP.u8_Curve_No AND 32) = 32) AND NOT WP.b_block_nr_selected AND NOT WP.b_function_nr_selected)
+                        OR (((WP.u8_Func_No AND 32) = 32) AND NOT WP.b_block_nr_selected AND WP.b_function_nr_selected)
+                        OR (((WP.u8_Block_No AND 32) = 32) AND WP.b_block_nr_selected AND NOT WP.b_function_nr_selected);
+
+    WattPilote.ToWP.PB7 := (((WP.u8_Curve_No AND 64) = 64) AND NOT WP.b_block_nr_selected AND NOT WP.b_function_nr_selected)
+                        OR (((WP.u8_Func_No AND 64) = 64) AND NOT WP.b_block_nr_selected AND WP.b_function_nr_selected)
+                        OR (((WP.u8_Block_No AND 64) = 64) AND WP.b_block_nr_selected AND NOT WP.b_function_nr_selected);
+
+//******************************************************** 
+//*****Operation Mode Number (MD-Number) to WP***** 
+     
+    WP.b_MDX_feedback := (BYTE_TO_INT(u8_OM) = BYTE_TO_INT(u8_WP_MD_No AND 16#07));
+    
+    TP_Ackn_Instance( IN := ((b_WP_SP_Alarm_Ackn OR b_ResButton_pressed) AND WP.b_General_Alarm) , PT := TIME_TON_ACQ_MS + TIME_TP_ACQ_MS/2);
+    b_NC_AlarmAckn := TP_Ackn_Instance.Q; 
+
+    IF WP.b_ModeChange_forbidden OR b_NC_AlarmAckn OR WP.b_MDX_feedback THEN
+        WP.b_MDS_Request := 0;
+    END_IF;
+
+    IF ((b_WP_MDS_MCode AND NOT WP.b_DeactMode) OR b_WP_MDS_Manually) AND NOT WP.b_MDX_feedback  THEN
+        WP.b_MDS_Request := 1;
+    END_IF;
+    
+    
+    // Activate intern Bit "WP.b_MDS" with TP-function 
+    // (Code of MDS-ladder, only the transfer to WP-Input in next section)
+    
+    TP_MDS_Instance( IN := WP.b_MDS_Request AND NOT b_WP_OFF AND (WattPilote.FromWP.RDY OR (WP.b_DeactMode AND b_Ext_ModeChange)) AND (WattPilote.FromWP.ALR AND b_FastIO_ALR) AND NOT WattPilote.FromWP.MON, PT := TIME_TP_MDS_MS);
+    WP.b_MDS := TP_MDS_Instance.Q;
+    
+    // Write MD1-3 to WP
+    WattPilote.ToWP.MD_1 := (WP.b_MDS AND ((WP.u8_MD_No AND  1) = 1));
+    WattPilote.ToWP.MD_2 := (WP.b_MDS AND ((WP.u8_MD_No AND  2) = 2));
+    WattPilote.ToWP.MD_3 := (WP.b_MDS AND ((WP.u8_MD_No AND  4) = 4)); 
+    
+    
+
+//******************************************************** 
+//*****Validation of Mode-Change (MDS)***** 
+// Notice: If WattPilote is in Monitoring deactivated mode (mode 4), the request from the NC (third M-Function) to change the mode is not considered and WattPilote remains in mode 4.
+// The exit from the Monitoring deactivated mode can only be done through the software (WP_Visu, or IO-Manager). 
+// Optional: Use FB-Input "b_Ext_ModeChange" to allow manually WP Mode Change from mode 4 (HMI, dedicated buttons). 
+    
+    IF NOT b_WP_OFF THEN 
+        
+        IF WP.b_MDS_Request THEN
+            
+            // Set intern Bit WP.b_ModeChange_forbidden
+            IF  (NOT WattPilote.FromWP.ALR OR NOT b_FastIO_ALR)
+                OR (NOT WattPilote.FromWP.RDY AND (WattPilote.FromWP.ALR AND b_FastIO_ALR)  AND NOT WP.b_DeactMode) THEN
+        
+                WP.b_ModeChange_forbidden := 1;    
+            END_IF;   
+              
+        END_IF;
+ 
+        // Write acknowledge of Mode Change (MDS) to WP
+        TON_MDS_Instance( IN := WP.b_MDS, PT := TIME_TON_MDS_MS);
+        WattPilote.ToWP.MDS := TON_MDS_Instance.Q;
+        
+    END_IF;
+
+
+    
+    
+//******************************************************** 
+//*****Machining Monitoring***** 
+// Set/Reset CTR = Start/Stop Monitoring        
+    
+    TON_Monitoring_Instance( IN := WP.b_CTR_Allowed AND NOT b_WP_OFF AND ((NOT WattPilote.FromWP.RDY AND NOT WP.b_DeactMode) OR (WattPilote.FromWP.RDY AND WattPilote.FromWP.BLC)), PT := TIME_TIMEOUT_S);
+    
+    // Set CTR
+    IF WP.b_CTR_Allowed AND NOT b_WP_OFF THEN
+        
+        IF (WP.u8_Curve_No <> 0) THEN  // Do not start monitoring in case of PB-number "=0" (this value is only for reset of WP PB-number). 
+            IF WattPilote.FromWP.RDY AND NOT WattPilote.FromWP.BLC AND NOT WP.b_General_Alarm THEN  
+                WattPilote.ToWP.CTR := 1;
+            END_IF;
+        ELSE    
+            WP.b_Wrong_Machining_No := 1; // Wrong Machining Number: PB must be 1 <= PB-Number <= 120 (Monitoring not possible)
+        END_IF;     
+        
+        IF WattPilote.FromWP.RDY AND NOT WP.b_CTR_Allowed_old AND (NOT WattPilote.FromWP.ALR OR NOT b_FastIO_ALR) OR TON_Monitoring_Instance.Q THEN 
+            WP.b_Monitoring_forbidden := 1;
+        END_IF;
+      
+    END_IF;
+    
+    //****************************************************
+    // Reset CTR     
+    
+    b_M00_M01           := WORD_TO_BLOCK_DB( INT_TO_WORD( i16_used_Channel_DB)).DX[32,5];   // NC-program status stopped/paused
+    b_M02_M30           := WORD_TO_BLOCK_DB( INT_TO_WORD( i16_used_Channel_DB)).DX[33,5];   // End of NC-program
+    b_ResButton_pressed := WORD_TO_BLOCK_DB( INT_TO_WORD( i16_used_Channel_DB)).DX[7,7];    // "=1" means Reset-Button is currently pressed.
+    
+    // Fault acknowledgement action
+   
+    IF b_M02_M30 OR b_WP_StopMonitoring OR b_NC_AlarmAckn THEN 
+       WattPilote.ToWP.CTR := 0; 
+       WP.b_CTR_Allowed    := 0;
+       
+    END_IF;
+    
+    // Reset FB-Output "b_NC_EmergencyProgram"
+    IF b_ResButton_pressed OR b_WP_StopMonitoring THEN
+        b_NC_EmergencyProgram := 0;      
+    END_IF;
+    
+    // Set FB-Output "b_FastIO_CTR"
+    b_FastIO_CTR := WattPilote.ToWP.CTR;
+     
+   
+    // Initiate Timeout for CTR->MON Handshake: WP-Output MON (PLC Input) must follow CTR within 50ms -> otherwise set internal Bit WP.b_Missing_Handshake
+    TON_CTR_MON_Instance_1( IN := WattPilote.ToWP.CTR AND (WattPilote.FromWP.ALR AND b_FastIO_ALR), PT := TIME_CTRMON_MS); 
+    TON_CTR_MON_Instance_2( IN := NOT WattPilote.ToWP.CTR AND (WattPilote.FromWP.ALR AND b_FastIO_ALR), PT := TIME_CTRMON_MS);
+ 
+    IF (TON_CTR_MON_Instance_1.Q AND NOT WattPilote.FromWP.MON AND WattPilote.ToWP.ENA) OR (TON_CTR_MON_Instance_2.Q AND WattPilote.FromWP.MON AND WattPilote.ToWP.ENA) THEN 
+        WP.b_Missing_Handshake := 1; 
+    END_IF;    
+        
+//********************************************************  
+//*****Alarm Acknowledgement*****
+// Reset the current Alarm state of the WattPilote (set WattPilote.ToWP.ACQ)
+      
+    // TP_ACQ_Instance.Q is ON 50ms later than TON_ACQ_Instance started. TP_ACQ_Instance.Q is set "=1" for 50 ms.
+    TON_ACQ_Instance( IN := b_NC_AlarmAckn AND NOT WattPilote.ToWP.CTR, PT := TIME_TON_ACQ_MS); 
+    TP_ACQ_Instance( IN := TON_ACQ_Instance.Q, PT := TIME_TP_ACQ_MS);
+    b_AlarmAckn_in_Process := TP_ACQ_Instance.Q;
+    
+    // Transfer Alarm acknowledgement to WP
+    WattPilote.ToWP.ACQ := b_AlarmAckn_in_Process AND ( ((WattPilote.FromWP.RDY OR WP.b_DeactMode OR b_WP_OFF) AND (NOT WattPilote.FromWP.ALR OR NOT b_FastIO_ALR)) OR WP.b_Alarm_System );
+    
+    // Rest intern Bits for WP-Alarms    
+    IF b_AlarmAckn_in_Process AND (WattPilote.FromWP.RDY OR WP.b_DeactMode OR b_WP_OFF) AND (WattPilote.FromWP.ALR AND b_FastIO_ALR) THEN
+        
+        WP.b_Monitoring_forbidden   := 0;
+        WP.b_ModeChange_forbidden   := 0;
+        WP.b_Missing_Handshake      := 0;
+        WP.b_Wrong_OpMode_No        := 0;
+        WP.b_Wrong_Machining_No     := 0; 
+        WP.b_Wrong_Function_No      := 0;
+        WP.b_Wrong_Block_No         := 0;
+        WP.b_LDB_forbidden          := 0;
+        WP.b_HSM_forbidden          := 0;
+        WP.b_TCC_forbidden          := 0;
+        WP.b_MCM_forbidden          := 0;
+        WP.b_Wrong_Tool_NR          := 0;
+        
+        // Reset FB-Outputs for WP-Alarms/Warnings
+        u32_WP_Alarms_1    := 0; 
+        u32_WP_Alarms_2    := 0;
+        u32_WP_Alarms_3    := 0;
+        u32_WP_Alarms_4    := 0;
+        u32_WP_Warnings_1  := 0;
+        u8_WP_Warnings_2   := 0;
+  
+    END_IF;
+
+    // Reset LDB_Allowed / LDB if alarm acknowledgement or WP_OFF
+    IF b_AlarmAckn_in_Process OR b_WP_OFF THEN
+        WP.b_LDB_Allowed := 0;
+        WP.b_LDB         := 0;
+        WattPilote.ToWP.LDB := 0;
+    END_IF;    
+        
+
+//********************************************************  
+//*****Emergency program and machine feed/read-in stop*****
+// Set/Reset Bits for FB Outputs b_NC_EmergencyProgram, b_NC_Feed_ReadIn_Stop, b_Force_OV_To_100Percent 
+    
+    // Set FB-Output "b_NC_EmergencyProgram" if:
+    // Monitoring active (CTR=1) and no communication to WP 
+    // OR WP-Output STP (stop machine)
+    IF (WattPilote.ToWP.CTR AND WP.b_Missing_Handshake) OR (WattPilote.FromWP.STP OR b_FastIO_STP) THEN
+        stat_NC_EmergencyProgram := 1;
+    END_IF;
+    
+    // Reset FB-Output "b_NC_EmergencyProgram"
+    IF b_ResButton_pressed OR b_WP_StopMonitoring THEN
+        stat_NC_EmergencyProgram := 0;      
+    END_IF;
+    b_NC_EmergencyProgram := stat_NC_EmergencyProgram;
+    // Check Bit for WP general alarm
+    WP.b_General_Alarm := (NOT WattPilote.FromWP.ALR OR NOT b_FastIO_ALR)  AND NOT b_WP_OFF
+                            OR WP.b_Missing_Handshake
+                            OR WP.b_Monitoring_forbidden
+                            OR WP.b_ModeChange_forbidden
+                            OR WP.b_Wrong_Machining_No
+                            OR WP.b_Wrong_Function_No
+                            OR WP.b_Wrong_Block_No
+                            OR WP.b_Wrong_OpMode_No
+                            OR WP.b_Wrong_Tool_NR;
+                            //OR WP.b_TCC_forbidden
+                            //OR WP.b_HSM_forbidden
+                            //OR WP.b_MCM_forbidden
+                            //OR WP.b_LDB_forbidden
+                            
+    // Machine feed/ NC read-in stop 
+    b_NC_Feed_ReadIn_Stop := (((WP.b_CTR_Allowed AND (WattPilote.FromWP.ALR AND b_FastIO_ALR) AND NOT WattPilote.FromWP.RDY AND NOT WP.b_DeactMode AND NOT b_WP_OFF) OR WP.b_General_Alarm)
+                                AND NOT b_NC_EmergencyProgram)
+                                OR (WP.b_CTR_Allowed AND b_WP_OFF AND WattPilote.FromWP.RDY AND WattPilote.FromWP.BLC);
+        
+    //****************************************************
+    // Set FB-Output "b_Feed_SpindleOV_to_100" when the PLC should force the override for axis feed and spindle speed to 100% (default value during monitoring)
+    b_Feed_SpindleOV_to_100 := NOT (WattPilote.ToWP.CTR AND NOT b_NC_Feed_ReadIn_Stop);               
+        
+//********************************************************************************************** 
+//*****G-Function decoding*****
+// For an active G0, G-Group 1 (Channel-DB Byte 208) is checked.
+
+    // Set/reset "b_G0_active" depending on currently activated G-Function
+    IF (BYTE_TO_INT( WORD_TO_BLOCK_DB( INT_TO_WORD( i16_used_Channel_DB)).DB[208])) = 1 THEN
+        b_G0_active := 1;   // G0:  group 1/1   Rapid traverse
+
+    ELSE  
+        b_G0_active := 0;   // G-Function <> G0 detected
+        
+    END_IF;
+    
+//********************************************************************************************** 
+//*****Variables for status of NC machining process*****
+
+    b_Mode_Auto             := DB11.DBX[6,0];                                                   // DB11.DBX[6,0] is set --> Auto-Mode used 
+    b_Mode_MDI              := DB11.DBX[6,1];                                                   // DB11.DBX[6,1] is set --> MDA-Mode used 
+    b_Start_Machining_Cycle := WORD_TO_BLOCK_DB( INT_TO_WORD( i16_used_Channel_DB)).DX[7,1];    // DBxx.DX[7,1] is activated while button "CYCLE START" on MCP is pushed
+
+    // Set Bit for activated machining process
+    IF (b_Mode_Auto OR b_Mode_MDI) AND b_Start_Machining_Cycle THEN
+        b_Program_In_Progress := 1;
+    END_IF;
+    
+    // Reset Bit for activated machining process
+    IF (NOT b_Mode_Auto AND NOT b_Mode_MDI) OR b_M00_M01 OR b_M02_M30 OR b_ResButton_pressed OR b_Abort_Part_Program THEN 
+        b_Program_In_Progress := 0;
+    END_IF;
+    
+    // Working Feed Rate is active when: program in progress AND NOT G0 (not rapid traverse) AND NOT TCC
+    // G00 to WP = inverted Working Feed Rate (G00=1 means rapid traverse / no working feed)
+    (*IF b_Program_In_Progress AND NOT b_G0_active THEN
+        b_Working_Feed_Rate := 1;
+    ELSIF NOT b_Program_In_Progress OR b_G0_active THEN
+        b_Working_Feed_Rate := 0;
+    END_IF;
+    
+    // TCC overrides to Working Feed Rate regardless of G0
+    IF WattPilote.ToWP.TCC THEN
+        b_Working_Feed_Rate := 1;
+    END_IF;*)
+    
+    b_Working_Feed_Rate := (NOT b_G0_active AND b_Program_In_Progress) OR WattPilote.ToWP.TCC;
+    
+
+    // G00 to WP: =1 means rapid traverse (NOT working feed rate)
+    WattPilote.ToWP.G00 := NOT b_Working_Feed_Rate;
+    WattPilote.ToWP.M00 := b_M00_M01;
+    
+    // Set b_Abort_Part_Program from NC channel DB (program abort / reset)
+    b_Abort_Part_Program := b_ResButton_pressed OR b_M02_M30;
+
+//********************************************************************************************** 
+//*****Activation of intern Bit "b_Manual_Tool_Change"*****
+
+    // "b_Manual_Tool_Change" will be set for the minimum time of 800ms
+    TOF_Instance_MTOC (IN := (b_SP_Manual_Clamping_Tool OR b_SP_Manual_Unclamping_Tool), PT := TIME_TOF_MTOC_MS); 
+    b_Manual_Tool_Change := TOF_Instance_MTOC.Q;
+
+//********************************************************************************************** 
+//*****Tool-Change-Cycle***** 
+
+    b_TCC_started := b_SP_M_No_TCC_Start;
+    b_TCC_ended   := b_SP_M_No_TCC_End;
+    
+    // Set Bit "b_Tool_Change_Cycle" if the selected M-function is detected
+    IF b_TCC_started THEN
+        
+        // TCC can only be activated when WP is ready and no alarm is present
+        IF NOT WattPilote.FromWP.ALR AND NOT b_FastIO_ALR THEN 
+            WP.b_TCC_forbidden := 1;
+        ELSE      
+            b_Tool_Change_Cycle := 1;
+        END_IF;
+            
+    END_IF;
+      
+    // Reset Bit "b_Tool_Change_Cycle"
+    IF b_TCC_ended OR b_M02_M30 OR b_ResButton_pressed OR b_Abort_Part_Program THEN
+        b_Tool_Change_Cycle := 0;
+    END_IF;
+    
+    WattPilote.ToWP.TCC := b_Tool_Change_Cycle OR b_Manual_Tool_Change;
+
+//********************************************************************************************** 
+//*****holder seat monitoring (HSM)***** 
+    // Positive edge detection on b_SP_M_HSM_Cycle_Start and b_SP_M_REF_Cycle_Start
+    b_HSM_Cycle := b_SP_M_HSM_Cycle_Start AND NOT b_HSM_Cycle_old;
+    b_REF_Cycle := b_SP_M_REF_Cycle_Start AND NOT b_REF_Cycle_old;
+
+    // Save current values for next PLC cycle
+    b_HSM_Cycle_old := b_SP_M_HSM_Cycle_Start;
+    b_REF_Cycle_old := b_SP_M_REF_Cycle_Start;
+
+    //Set HSM and REF Cycles
+    IF b_HSM_Cycle OR b_REF_Cycle THEN
+        WP.b_HSM_Allowed := 1;
+    END_IF;
+    
+    IF b_REF_Cycle THEN
+        WattPilote.ToWP.REF := 1;
+    END_IF;
+    
+    IF WP.b_HSM_Allowed AND NOT b_WP_OFF AND WattPilote.FromWP.RDY AND NOT WattPilote.FromWP.BLC AND NOT WP.b_General_Alarm THEN
+        WattPilote.ToWP.HSM := 1;
+        
+    END_IF;
+    
+    TON_HSM_Instance( IN := WattPilote.ToWP.HSM, PT := TIME_TON_HSM_S);
+
+    IF WP.b_HSM_Allowed AND NOT b_WP_OFF THEN
+        
+        IF (NOT WattPilote.FromWP.RDY AND NOT WP.b_DeactMode) OR (WattPilote.FromWP.RDY AND NOT WattPilote.FromWP.ALR) THEN
+            WP.b_HSM_forbidden := 1;
+        END_IF;    
+    END_IF;
+    //Reset HSM
+    
+        
+    IF ( WattPilote.FromWP.MCC AND WattPilote.ToWP.HSM) OR b_ResButton_pressed OR b_M02_M30 OR TON_HSM_Instance.Q THEN
+        WattPilote.ToWP.HSM := 0;
+        WP.b_HSM_Allowed     := 0;
+        WattPilote.ToWP.REF := 0;
+    END_IF;
+    
+//******************************************************** 
+//*****End of cycle monitoring or Start change material detection***** 
+
+    //The bit END will be set, when the the M-Fuction (Example M127) is activated
+    IF  b_SP_M_END_Cycle_MON AND WattPilote.FromWP.MON THEN
+        WattPilote.ToWP.ECycle := 1;
+    END_IF;
+        
+    //reset the bit "ECycle" in case that cycle monitoring or change material is detected
+    IF  WattPilote.FromWP.CHG OR NOT WattPilote.FromWP.MON OR b_WP_StopMonitoring THEN
+        WattPilote.ToWP.ECycle := 0;
+    END_IF;
+        
+//********************************************************    
+// ***** Transfer scaled spindle speed from FB-Input to WattPilote structure *****
+// By using the FB4219 the spindle speed is scaled to ensure that the value is in range 0 ... 65000 rpm
+
+    WattPilote.ToWP.u16_S15_00 := u16_SpindleSpeed_In;
+
+
+//******************************************************** 
+//***** Machine Condition Monitoring (MCM) *****
+// M140=Spindle MCM, M141=Axis MCM, M142=Stop MCM
+
+    // Latch MCM start requests from M-function inputs.    
+    // OR assignment: only sets the latch; the reset at the end of this block clears it. 
+    b_Start_MCM_Spindle := b_Start_MCM_Spindle OR b_SP_Start_MCM_Spindle;  
+    b_Start_MCM_Axis    := b_Start_MCM_Axis    OR b_SP_Start_MCM_Axis; 
+
+    // MCM PLC output: active when MCM_Allowed AND WP ready AND no general alarm AND no deactivated mode
+    WP.b_MCM_Allowed := b_Start_MCM_Spindle OR b_Start_MCM_Axis; // MCM cycle can be started by M140, M141 (see FB-Input variables)
+    
+    // When MCM is active the WP-inputs PB1...PB7 will be used to transfer the function number to WattPilote
+    WP.b_function_nr_selected := WP.b_MCM_Allowed AND NOT b_WP_OFF AND WattPilote.FromWP.RDY  AND NOT WattPilote.FromWP.BLC AND NOT WP.b_General_Alarm;
+
+    TON_MCM_Instance( IN := WP.b_MCM_Allowed AND NOT b_WP_OFF AND WattPilote.FromWP.RDY  AND NOT WattPilote.FromWP.BLC AND NOT WP.b_General_Alarm, PT := TIME_TON_MCM_MS);
+    
+    IF TON_MCM_Instance.Q THEN
+        WattPilote.ToWP.MCM := 1;
+    END_IF;
+    
+    // MCM forbidden when: MCM allowed but WP not ready or alarm active
+    IF WP.b_MCM_Allowed AND NOT b_WP_OFF THEN
+        IF (NOT WattPilote.FromWP.RDY AND NOT WP.b_DeactMode)
+           OR (WattPilote.FromWP.RDY AND NOT (WattPilote.FromWP.ALR AND b_FastIO_ALR)) THEN
+            WP.b_MCM_forbidden := 1;
+        END_IF;
+    END_IF;
+    
+    // Reset MCM on M142, Reset, M02/M30, Abort
+    IF b_SP_Stop_MCM OR b_ResButton_pressed OR b_M02_M30 OR b_Abort_Part_Program THEN
+        b_MCM_OFF := 1;
+    END_IF;
+
+    TON_MCM_Stop_Instance( IN := b_MCM_OFF, PT := TIME_TIMEOUT_S);
+
+    IF b_MCM_OFF AND (b_Start_MCM_Axis OR (b_Start_MCM_Spindle AND WattPilote.FromWP.MCC) OR TON_MCM_Stop_Instance.Q) THEN
+        WattPilote.ToWP.MCM := 0;
+    END_IF;
+
+    // Stop machine if spindle MCM is not active and axis is running 
+    b_NC_Read_In_Stop := NOT WattPilote.ToWP.MCM AND b_Start_MCM_Axis  AND NOT WattPilote.FromWP.MCC; 
+    // Stop feed if spindle MCM and MCM are active
+    b_NC_Feed_Disable := (WattPilote.ToWP.MCM AND b_Start_MCM_Spindle AND WattPilote.FromWP.MCA)
+                        OR (WattPilote.ToWP.HSM AND WattPilote.FromWP.MCA); 
+    
+    IF (WattPilote.FromWP.MCC AND WP.b_MCM_Allowed) OR WP.b_MCM_forbidden OR b_ResButton_pressed THEN
+        b_Start_MCM_Spindle := 0;
+        b_Start_MCM_Axis    := 0;
+        b_MCM_OFF           := 0;
+    END_IF;
+
+//******************************************************** 
+//***** Monitoring Enable Decoding *****
+
+    WP.b_monitoring_enable :=
+        (WattPilote.FromWP.RDY AND (WattPilote.FromWP.ALR AND b_FastIO_ALR))
+        OR ((WattPilote.FromWP.ALR AND b_FastIO_ALR) AND NOT WattPilote.FromWP.SPE
+            AND NOT WattPilote.FromWP.OM1 AND NOT WattPilote.FromWP.OM2
+            AND NOT WattPilote.FromWP.OM3 AND NOT b_WP_OFF);
+
+//******************************************************** 
+//***** Traffic Light Outputs *****
+// Green  = monitoring active
+// Red    = monitoring disabled
+// Flash  = WattPilote alarm OR no communication OR stop feed
+
+    b_Traffic_light_green := WP.b_monitoring_enable;
+    b_Traffic_light_red   := NOT WP.b_monitoring_enable;
+    b_Traffic_light_flash := (NOT (WattPilote.FromWP.ALR AND b_FastIO_ALR) AND NOT b_WP_OFF)
+                              OR b_NC_Feed_ReadIn_Stop;
+
+//********************************************************
+//*****Decoding of alarms and warning***** 
+
+    // FB-Output "b_No_WP_Alarm"
+    b_No_WP_Alarm := (WattPilote.FromWP.ALR AND b_FastIO_ALR) AND NOT WattPilote.FromWP.WRN AND NOT b_WP_OFF AND NOT b_NC_Feed_ReadIn_Stop AND NOT WP.b_Missing_Handshake;
+
+    // Converting of the WattPilote alarm byte
+    i_WP_AL_Byte_No := BYTE_TO_INT(WattPilote.FromWP.u8_AL07_00);
+
+    // Note: Internal alarms are only relevant if the WP code is <= 31 (reserved range)
+    b_PLC_Message := i_WP_AL_Byte_No <= 31;
+
+    // Decoding of the internal alarms according to the existing FB4200 logic
+    WP.b_Alarm_System := (NOT WattPilote.FromWP.RDY) AND WattPilote.FromWP.SPE
+                      AND (NOT WattPilote.FromWP.ALR OR NOT b_FastIO_ALR)
+                      AND (NOT WattPilote.FromWP.BRK) AND (NOT WattPilote.FromWP.WRN)
+                      AND (NOT WattPilote.FromWP.N0T) AND (NOT WattPilote.FromWP.CNT)
+                      AND (NOT WattPilote.FromWP.SPN);
+    WP.b_Alarm_Learning := WattPilote.FromWP.RDY AND WattPilote.FromWP.SPE 
+                           AND (NOT WattPilote.FromWP.ALR OR NOT b_FastIO_ALR) 
+                           AND NOT WP.b_DeactMode;
+
+
+    WP.b_Alarm_WattPilote_OFF := NOT WattPilote.FromWP.RDY AND NOT WattPilote.FromWP.SPE 
+                                 AND (NOT WattPilote.FromWP.ALR OR NOT b_FastIO_ALR) 
+                                 AND WP.b_Monitoring_forbidden;
+
+    WP.b_Alarm_Channel_disable :=  NOT WattPilote.ToWP.ENA;
+
+    WP.b_Alarm_CDL_Disable := WP.b_WP_Ready_Latch AND NOT WattPilote.FromWP.RDY AND NOT WP.b_DeactMode;
+
+
+    // Mapping to Alarm Message Number.
+    IF NOT b_PLC_Message THEN
+        // Forward external WattPilot process alarms (>31) directly to the HMI
+        i16_Alarm_Message_Nr := i_WP_AL_Byte_No;
+
+    ELSE
+        // b_PLC_Message is TRUE (code <= 31). Set internal alarms.
+        IF WP.b_Alarm_System THEN
+            i16_Alarm_Message_Nr := 1; 
+            
+        ELSIF WP.b_Alarm_Learning THEN
+            i16_Alarm_Message_Nr := 2; 
+            
+        ELSIF WP.b_Missing_Handshake THEN
+            i16_Alarm_Message_Nr := 3; 
+            
+        ELSIF WP.b_Monitoring_forbidden THEN
+            i16_Alarm_Message_Nr := 4;
+            
+        ELSIF WP.b_ModeChange_forbidden THEN
+            i16_Alarm_Message_Nr := 5;
+            
+        ELSIF WP.b_Wrong_Machining_No THEN
+            i16_Alarm_Message_Nr := 6;
+            
+        ELSIF WP.b_Wrong_OpMode_No THEN
+            i16_Alarm_Message_Nr := 7;
+            
+        ELSIF WP.b_Wrong_Block_No THEN
+            i16_Alarm_Message_Nr := 8;
+
+        ELSIF WP.b_Alarm_WattPilote_OFF THEN
+            i16_Alarm_Message_Nr := 9;
+        
+        ELSIF WP.b_Alarm_Channel_disable THEN
+            i16_Alarm_Message_Nr := 10;
+
+        ELSIF WP.b_Alarm_CDL_Disable THEN
+            i16_Alarm_Message_Nr := 11;
+
+        ELSIF WP.b_Alarm_TCC_Forbidden THEN
+            i16_Alarm_Message_Nr := 12;
+
+        ELSIF WP.b_MCM_forbidden THEN
+            i16_Alarm_Message_Nr := 13;
+
+        ELSIF WP.b_Wrong_Tool_NR THEN
+            i16_Alarm_Message_Nr := 14;                
+        
+        ELSE
+            i16_Alarm_Message_Nr := 0; 
+        END_IF;
+        
+    END_IF;
+
+    //Transfer the PLC alarms, WP larams, and the warnings to the HMI via FB-Outputs
+    
+    IF (NOT b_WP_OFF AND NOT WP.b_DeactMode) THEN
+
+        // Intern PLC alarms
+        arr_Alarms_1[0]  := WP.b_Alarm_System;                                    // WP-Alarm: Internal PLC System Alarm
+        arr_Alarms_1[1]  := WP.b_Alarm_Learning;                                  // WP-Alarm: Internal PLC Learning Alarm
+        arr_Alarms_1[2]  := WP.b_Missing_Handshake;                               // WP-Alarm: WP does not react on CTR - missing MON handshake 
+        arr_Alarms_1[3]  := WP.b_Monitoring_forbidden;                            // WP-Alarm: Monitoring forbidden
+        arr_Alarms_1[4]  := WP.b_ModeChange_forbidden;                            // WP-Alarm: Mode change forbidden     
+        arr_Alarms_1[5]  := WP.b_Wrong_Machining_No;                              // WP-Alarm: Wrong curve number: 1 -120 allowed
+        arr_Alarms_1[6]  := WP.b_Wrong_OpMode_No;                                 // WP-Alarm: Wrong operating mode number: 0 - 7 allowed
+        arr_Alarms_1[7]  := WP.b_Wrong_Block_No;                                  // WP-Alarm: Wrong block number: 1 -120 allowed
+        arr_Alarms_1[8]  := WP.b_Alarm_WattPilote_OFF;                            // WP-Alarm: WattPilote OFF
+        arr_Alarms_1[9]  := WP.b_Alarm_Channel_disable;                           // WP-Alarm: Channel disabled
+        arr_Alarms_1[10] := WP.b_Alarm_CDL_Disable;                               // WP-Alarm: CDL disabled
+        arr_Alarms_1[11] := WP.b_Alarm_TCC_Forbidden;                             // WP-Alarm: TCC forbidden
+        arr_Alarms_1[12] := WP.b_MCM_forbidden;                                   // WP-Alarm: MCM forbidden
+        arr_Alarms_1[13] := WP.b_Wrong_Tool_NR;                                   // WP-Alarm: Wrong tool number
+
+    // WattPilote Alarms
+        // Alarm system 
+        arr_Alarms_2[0]  := (i_WP_AL_Byte_No = 64);                           // WP-Alarm: system failure
+        arr_Alarms_2[1]  := (i_WP_AL_Byte_No = 65);                           // WP-Alarm: missing SD
+        arr_Alarms_2[2]  := (i_WP_AL_Byte_No = 66);                           // WP-Alarm: SD failure
+        arr_Alarms_2[3]  := (i_WP_AL_Byte_No = 68);                           // WP-Alarm: Load bloc
+
+        // Alarm WattPilote Main data
+        arr_Alarms_2[4]  := (i_WP_AL_Byte_No = 72);                           // WP-Alarm: Spindle stability
+        arr_Alarms_2[5]  := (i_WP_AL_Byte_No = 73);                           // WP-Alarm: Spindle level : P_TOL
+        arr_Alarms_2[6]  := (i_WP_AL_Byte_No = 74);                           // WP-Alarm: Spindle power to low : P_MIP
+        arr_Alarms_2[7]  := (i_WP_AL_Byte_No = 76);                           // WP-Alarm: Cycle trop court
+        arr_Alarms_2[8]  := (i_WP_AL_Byte_No = 77);                           // WP-Alarm: Cycle trop long (apprentissage)
+        arr_Alarms_2[9]  := (i_WP_AL_Byte_No = 78);                           // WP-Alarm: Cycle without machining
+        arr_Alarms_2[10] := (i_WP_AL_Byte_No = 79);                          // WP-Alarm: Absolut power : P_ABS
+        arr_Alarms_2[11] := (i_WP_AL_Byte_No = 80);                          // WP-Alarm: Timeout Tool/Part contact : T_ACC
+        arr_Alarms_2[12] := (i_WP_AL_Byte_No = 81);                          // WP-Alarm: low power : P_INF
+        arr_Alarms_2[13] := (i_WP_AL_Byte_No = 82);                          // WP-Alarm: high power : P-SUP
+        arr_Alarms_2[14] := (i_WP_AL_Byte_No = 83);                          // WP-Alarm: absolut power : P_ABS
+        arr_Alarms_2[15] := (i_WP_AL_Byte_No = 84);                          // WP-Alarm: Timeout Tool/Part contact : T_ACC
+        arr_Alarms_2[16] := (i_WP_AL_Byte_No = 85);                          // WP-Alarm: high derivative : D_SUP
+        arr_Alarms_2[17] := (i_WP_AL_Byte_No = 86);                          // WP-Alarm: low derivative : D_MIN
+        arr_Alarms_2[18] := (i_WP_AL_Byte_No = 92);                          // WP-Alarm: wear threshold : P_WRN
+        arr_Alarms_2[19] := (i_WP_AL_Byte_No = 93);                          // WP-Alarm: low energy : E_INF
+        arr_Alarms_2[20] := (i_WP_AL_Byte_No = 94);                          // WP-Alarm: high energy : E_SUP
+        arr_Alarms_2[21] := (i_WP_AL_Byte_No = 95);                          // WP-Alarm: part counter : T_CNT
+        arr_Alarms_2[22] := (i_WP_AL_Byte_No = 89);                          // WP-Alarm: missing tool : E_FIL
+        arr_Alarms_2[23] := (i_WP_AL_Byte_No = 90);                          // WP-Alarm: tool wear : E_CIC
+
+        // Alarm WattPilote Optional data
+        arr_Alarms_2[24] := (i_WP_AL_Byte_No = 96);                          // WP-Alarm: low value - Optional data 1 : 1_INF
+        arr_Alarms_2[25] := (i_WP_AL_Byte_No = 97);                          // WP-Alarm: high value - Optional data  1 - 1_SUP
+        arr_Alarms_2[26] := (i_WP_AL_Byte_No = 98);                          // WP-Alarm: high value - Optional data  1 : 1_ABS
+        arr_Alarms_2[27] := (i_WP_AL_Byte_No = 99);                          // WP-Alarm: Energie -Optional data 1 : 1_WRN
+        arr_Alarms_2[28] := (i_WP_AL_Byte_No = 100);                         // WP-Alarm: low value - Optional data 2 : 2_INF
+        arr_Alarms_2[29] := (i_WP_AL_Byte_No = 101);                         // WP-Alarm: high value - Optional data  2 : 2_SUP
+        arr_Alarms_2[30] := (i_WP_AL_Byte_No = 102);                         // WP-Alarm: high value - Optional data  2 : 2_ABS
+        arr_Alarms_2[31] := (i_WP_AL_Byte_No = 103);                         // WP-Alarm: Energie -Optional data 2 -  : 2_WRN
+        arr_Alarms_3[0] := (i_WP_AL_Byte_No = 104);                          // WP-Alarm: low value - Optional data 3 : 3_INF
+        arr_Alarms_3[1] := (i_WP_AL_Byte_No = 105);                          // WP-Alarm: high value - Optional data  3 : 3_SUP
+        arr_Alarms_3[2] := (i_WP_AL_Byte_No = 106);                          // WP-Alarm: high value - Optional data  3 : 3_ABS
+        arr_Alarms_3[3] := (i_WP_AL_Byte_No = 107);                          // WP-Alarm: Energie -Optional data 3 : 3_WRN
+        arr_Alarms_3[4] := (i_WP_AL_Byte_No = 108);                          // WP-Alarm: low value - Optional data 4 : 4_INF
+        arr_Alarms_3[5] := (i_WP_AL_Byte_No = 109);                          // WP-Alarm: high value - Optional data 4 : 4_SUP
+        arr_Alarms_3[6] := (i_WP_AL_Byte_No = 110);                          // WP-Alarm: high value - Optional data  4 : 4_ABS
+        arr_Alarms_3[7] := (i_WP_AL_Byte_No = 111);                          // WP-Alarm: Energie -Optional data 4 : 4_WRN
+        arr_Alarms_3[8] := (i_WP_AL_Byte_No = 112);                          // WP-Alarm: low value - Optional data 5 : 5_INF
+        arr_Alarms_3[9] := (i_WP_AL_Byte_No = 113);                          // WP-Alarm: high value - Optional data 5 : 5_SUP
+        arr_Alarms_3[10] := (i_WP_AL_Byte_No = 114);                         // WP-Alarm: high value - Optional data  5 : 5_ABS
+        arr_Alarms_3[11] := (i_WP_AL_Byte_No = 115);                         // WP-Alarm: Energie -Optional data 5 : 5_WRN
+        arr_Alarms_3[12] := (i_WP_AL_Byte_No = 116);                         // WP-Alarm: low value - Optional data 6 : 6_INF
+        arr_Alarms_3[13] := (i_WP_AL_Byte_No = 117);                         // WP-Alarm: high value - Optional data 6 : 6_SUP
+        arr_Alarms_3[14] := (i_WP_AL_Byte_No = 118);                         // WP-Alarm: high value - Optional data  6 : 6_ABS
+        arr_Alarms_3[15] := (i_WP_AL_Byte_No = 119);                         // WP-Alarm: Energie -Optional data 6 : 6_WRN
+        arr_Alarms_3[16] := (i_WP_AL_Byte_No = 120);                         // WP-Alarm: low value - Optional data 7 : 7_INF
+        arr_Alarms_3[17] := (i_WP_AL_Byte_No = 121);                         // WP-Alarm: high value - Optional data 7 : 7_SUP
+        arr_Alarms_3[18] := (i_WP_AL_Byte_No = 122);                         // WP-Alarm: high value - Optional data  7  : 7_ABS
+        arr_Alarms_3[19] := (i_WP_AL_Byte_No = 123);                         // WP-Alarm: Energie -Optional data 7 : 7_WRN
+        arr_Alarms_3[20] := (i_WP_AL_Byte_No = 124);                         // WP-Alarm: low value - Optional data 8 : 8_INF
+        arr_Alarms_3[21] := (i_WP_AL_Byte_No = 125);                         // WP-Alarm: high value - Optional data 8 : 8_SUP
+        arr_Alarms_3[22] := (i_WP_AL_Byte_No = 126);                         // WP-Alarm: high value - Optional data  8 : 8_ABS
+        arr_Alarms_3[23] := (i_WP_AL_Byte_No = 127);                         // WP-Alarm: Energie -Optional data 8 : 8_WRN
+
+        // Alarm SafePilote - CDL
+        arr_Alarms_3[24] := (i_WP_AL_Byte_No = 192);                         // WP-Alarm: CLD Collision
+        arr_Alarms_3[25] := (i_WP_AL_Byte_No = 193);                         // WP-Alarm: CDL vibration alarm
+
+        // Alarm SafePilote - MCM Spindle
+        arr_Alarms_3[26] := (i_WP_AL_Byte_No = 208);                         // WP-Alarm: Spindle measuring cycle too short
+        arr_Alarms_3[27] := (i_WP_AL_Byte_No = 209);                         // WP-Alarm: Spindle unbalance alarm
+        arr_Alarms_3[28] := (i_WP_AL_Byte_No = 210);                         // WP-Alarm: Spindle geometry alarm
+        arr_Alarms_3[29] := (i_WP_AL_Byte_No = 211);                         // WP-Alarm: Spindle bearing alarm
+        arr_Alarms_3[30] := (i_WP_AL_Byte_No = 212);                         // WP-Alarm: Spindle other alarm
+
+        // Alarm SafePilote - MCM Axis
+        arr_Alarms_3[31] := (i_WP_AL_Byte_No = 224);                         // WP-Alarm: X Axis measuring cycle too long
+        arr_Alarms_4[0] := (i_WP_AL_Byte_No = 225);                          // WP-Alarm: X Axis local damage alarm
+        arr_Alarms_4[1] := (i_WP_AL_Byte_No = 226);                          // WP-Alarm: X Axis global wear alarm
+        arr_Alarms_4[2] := (i_WP_AL_Byte_No = 227);                          // WP-Alarm: X Axis peak factor alarm
+        arr_Alarms_4[3] := (i_WP_AL_Byte_No = 228);                          // WP-Alarm: X Axis kurtosis alarm
+        arr_Alarms_4[4] := (i_WP_AL_Byte_No = 232);                          // WP-Alarm: Y Axis measuring cycle too long
+        arr_Alarms_4[5] := (i_WP_AL_Byte_No = 233);                          // WP-Alarm: Y Axis local damage alarm
+        arr_Alarms_4[6] := (i_WP_AL_Byte_No = 234);                          // WP-Alarm: Y Axis global wear alarm
+        arr_Alarms_4[7] := (i_WP_AL_Byte_No = 235);                          // WP-Alarm: Y Axis peak factor alarm
+        arr_Alarms_4[8] := (i_WP_AL_Byte_No = 236);                          // WP-Alarm: Y Axis kurtosis alarm
+        arr_Alarms_4[9] := (i_WP_AL_Byte_No = 240);                          // WP-Alarm: Z Axis measuring cycle too long
+        arr_Alarms_4[10] := (i_WP_AL_Byte_No = 241);                         // WP-Alarm: Z Axis local damage alarm
+        arr_Alarms_4[11] := (i_WP_AL_Byte_No = 242);                         // WP-Alarm: Z Axis global wear alarm
+        arr_Alarms_4[12] := (i_WP_AL_Byte_No = 243);                         // WP-Alarm: Z Axis peak factor alarm
+        arr_Alarms_4[13] := (i_WP_AL_Byte_No = 244);                         // WP-Alarm: Z Axis kurtosis alarm 
+        arr_Alarms_4[14] := (i_WP_AL_Byte_No = 248);                         // WP-Alarm: W Axis measuring cycle too long
+        arr_Alarms_4[15] := (i_WP_AL_Byte_No = 249);                         // WP-Alarm: W Axis local damage alarm
+        arr_Alarms_4[16] := (i_WP_AL_Byte_No = 250);                         // WP-Alarm: W Axis global wear alarm
+        arr_Alarms_4[17] := (i_WP_AL_Byte_No = 251);                         // WP-Alarm: W Axis peak factor alarm
+        arr_Alarms_4[18] := (i_WP_AL_Byte_No = 252);                         // WP-Alarm: W Axis kurtosis alarm
+
+        // Alarm SafePilote - HSM
+        arr_Alarms_4[19] := (i_WP_AL_Byte_No = 200);                         // WP-Alarm: HSM cycle too short
+        arr_Alarms_4[20] := (i_WP_AL_Byte_No = 201);                         // WP-Alarm: HSM  learning missing
+        arr_Alarms_4[21] := (i_WP_AL_Byte_No = 202);                         // WP-Alarm: HSM GAP alarm
+        arr_Alarms_4[22] := (i_WP_AL_Byte_No = 203);                         // WP-Alarm: HSM magnitude alarm
+        arr_Alarms_4[23] := (i_WP_AL_Byte_No = 204);                         // WP-Alarm: HSM angle alarm
+        arr_Alarms_4[24] := (i_WP_AL_Byte_No = 205);                         // WP-Alarm: HSM speed alarm
+        arr_Alarms_4[25] := (i_WP_AL_Byte_No = 206);                         // WP-Alarm: HSM No Top Zero
+
+    // Warnings
+        // intern PLC warnings  
+        arr_Warnings_1[0] := b_NC_Feed_ReadIn_Stop AND WP.b_General_Alarm;   // WP-Warning: NC Feed/Read Stop
+        arr_Warnings_1[1] := b_NC_EmergencyProgram;                          // WP-Warning: NC Emergency Program
+        
+
+        // WattPilote warnings
+        arr_Warnings_1[3] := (i_WP_AL_Byte_No = 48);                         // WP-Warning: Spindle - Hold Feed Rate
+        arr_Warnings_1[4] := (i_WP_AL_Byte_No = 33);                         // WP-Warning: Mode synchronized : Cycle too short % learning
+        arr_Warnings_1[5] := (i_WP_AL_Byte_No = 34);                         // WP-Warning: Mode synchronized : Cycle too long % leraning
+        arr_Warnings_1[6] := (i_WP_AL_Byte_No = 61);                         // Pre-alarm high energy  Main Data : E_FAL
+        arr_Warnings_1[7] := (i_WP_AL_Byte_No = 35);                         // Pre-alarm energy  Optional Data 1 : E_FAL
+        arr_Warnings_1[8] := (i_WP_AL_Byte_No = 39);                         // Pre-alarm energy  Optional Data 2 : E_FAL
+        arr_Warnings_1[9] := (i_WP_AL_Byte_No = 43);                         // Pre-alarm energy  Optional Data 3 : E_FAL
+        arr_Warnings_1[10] := (i_WP_AL_Byte_No = 47);                        // Pre-alarm energy  Optional Data 4 : E_FAL
+        arr_Warnings_1[11] := (i_WP_AL_Byte_No = 51);                        // Pre-alarm energy  Optional Data 5 : E_FAL
+        arr_Warnings_1[12] := (i_WP_AL_Byte_No = 55);                        // Pre-alarm energy  Optional Data 6 : E_FAL
+        arr_Warnings_1[13] := (i_WP_AL_Byte_No = 59);                        // Pre-alarm energy  Optional Data 7 : E_FAL
+        arr_Warnings_1[14] := (i_WP_AL_Byte_No = 63);                        // Pre-alarm energy  Optional Data 8 : E_FAL
+        
+        // Pre-alarm SafePilote - CDL
+        arr_Warnings_1[15] := (i_WP_AL_Byte_No = 129);                       // Pre-alarm CDL vibartion
+        
+        // Pre-alarm SafePilote - MCM Spindle
+        arr_Warnings_1[16] := (i_WP_AL_Byte_No = 145);                       // Pre-alarm Spindle unbalance
+        arr_Warnings_1[17] := (i_WP_AL_Byte_No = 146);                       // Pre-alarm Spindle geometry
+        arr_Warnings_1[18] := (i_WP_AL_Byte_No = 147);                       // Pre-alarm Spindle bearing
+        arr_Warnings_1[19] := (i_WP_AL_Byte_No = 148);                       // Pre-alarm Spindle other
+
+        // Pre-alarm SafePilote - MCM Axis
+        arr_Warnings_1[20] := (i_WP_AL_Byte_No = 161);                       // Pre-alarm X Axis local damage
+        arr_Warnings_1[21] := (i_WP_AL_Byte_No = 162);                       // Pre-alarm X Axis global wear
+        arr_Warnings_1[22] := (i_WP_AL_Byte_No = 163);                       // Pre-alarm X Axis peak factor
+        arr_Warnings_1[23] := (i_WP_AL_Byte_No = 164);                       // Pre-alarm X Axis kurtosis
+
+        arr_Warnings_1[24] := (i_WP_AL_Byte_No = 169);                       // Pre-alarm Y Axis local damage
+        arr_Warnings_1[25] := (i_WP_AL_Byte_No = 170);                       // Pre-alarm Y Axis global wear
+        arr_Warnings_1[26] := (i_WP_AL_Byte_No = 171);                       // Pre-alarm Y Axis peak factor
+        arr_Warnings_1[27] := (i_WP_AL_Byte_No = 172);                       // Pre-alarm Y Axis kurtosis
+
+        arr_Warnings_1[28] := (i_WP_AL_Byte_No = 177);                       // Pre-alarm Z Axis local damage
+        arr_Warnings_1[29] := (i_WP_AL_Byte_No = 178);                       // Pre-alarm Z Axis global wear
+        arr_Warnings_1[30] := (i_WP_AL_Byte_No = 179);                       // Pre-alarm Z Axis peak factor
+        arr_Warnings_1[31] := (i_WP_AL_Byte_No = 180);                       // Pre-alarm Z Axis kurtosis
+
+        arr_Warnings_2[0] := (i_WP_AL_Byte_No = 185);                        // Pre-alarm W Axis local damage
+        arr_Warnings_2[1] := (i_WP_AL_Byte_No = 186);                        // Pre-alarm W Axis global wear
+        arr_Warnings_2[2] := (i_WP_AL_Byte_No = 187);                        // Pre-alarm W Axis peak factor
+        arr_Warnings_2[3] := (i_WP_AL_Byte_No = 188);                        // Pre-alarm W Axis kurtosis
+    ELSE
+        u32_WP_Alarms_1    := 0; 
+        u32_WP_Alarms_2    := 0;
+        u32_WP_Alarms_3    := 0;
+        u32_WP_Alarms_4    := 0;
+        u32_WP_Warnings_1  := 0;
+        u8_WP_Warnings_2   := 0; 
+    END_IF;
+        
+        arr_Warnings_1[2] := WP.b_DeactMode;                                 // WP-Warning: WattPilote deactivated (Mode 4)
+//********************************************************
+//*****Adaptive control Value from WP Block 4 (Byte 7)*****      
+  
+    // Write Feed rate override value from WP to FB-Output
+    // AC7..AC0 -> DBxx.DBxx (feed rate modulation input of PLC)
+    b_Adaptive_Control_Activated := WattPilote.FromWP.ACE OR WattPilote.FromWP.SLW;
+
+    IF WattPilote.FromWP.SLW OR WattPilote.FromWP.ACE THEN
+        u8_AC_OV_Value := WattPilote.FromWP.u8_AC07_00;
+        //WORD_TO_BLOCK_DB(INT_TO_WORD(i16_used_Channel_DB)).DB[4]  := u8_AC_OV_Value;
+        //WORD_TO_BLOCK_DB(INT_TO_WORD(i16_used_Channel_DB)).DX[6,7] := 1;
+    //ELSE
+        //WORD_TO_BLOCK_DB(INT_TO_WORD(i16_used_Channel_DB)).DB[4]  := 0;
+        //WORD_TO_BLOCK_DB(INT_TO_WORD(i16_used_Channel_DB)).DX[6,7] := 0;
+    END_IF;
+
+    
+
+//********************************************************
+//***** Absolute Power Calculation (P15..P00) *****
+
+    r32_WP_AbsPower_Watt := DINT_TO_REAL (WORD_TO_DINT( WattPilote.FromWP.u16_AbsPower )) * WP.r32_Rated_Power_Factor;
+
+//********************************************************
+// Extract bits BL6 through BL0 and transfer them to the output
+
+    //u8_Active_Block_NR := arr_WP_InOut[6] AND 16#7F;
+    arr_Active_Block_NR[0] := WattPilote.FromWP.BL0;
+    arr_Active_Block_NR[1] := WattPilote.FromWP.BL1;
+    arr_Active_Block_NR[2] := WattPilote.FromWP.BL2;
+    arr_Active_Block_NR[3] := WattPilote.FromWP.BL3;
+    arr_Active_Block_NR[4] := WattPilote.FromWP.BL4;
+    arr_Active_Block_NR[5] := WattPilote.FromWP.BL5;
+    arr_Active_Block_NR[6] := WattPilote.FromWP.BL6;
+    arr_Active_Block_NR[7] := FALSE; 
+
+//********************************************************
+//*****Transfer internal WP variables to WattPilote*****
+// Transfer data from temp. array "arr_WP_InOut" to FB-Output
+    
+    arr_WP_Out_1of4[0] := arr_WP_InOut[16];
+    arr_WP_Out_1of4[1] := arr_WP_InOut[17];
+    arr_WP_Out_1of4[2] := arr_WP_InOut[18];
+    arr_WP_Out_1of4[3] := arr_WP_InOut[19]; 
+    arr_WP_Out_2of4[0] := arr_WP_InOut[20];
+    arr_WP_Out_2of4[1] := arr_WP_InOut[21];
+    arr_WP_Out_2of4[2] := arr_WP_InOut[22];
+    arr_WP_Out_2of4[3] := arr_WP_InOut[23];   
+
+    IF b_Extended_Mode THEN
+        arr_WP_Out_3of4[0] := arr_WP_InOut[24];
+        arr_WP_Out_3of4[1] := arr_WP_InOut[25];
+        arr_WP_Out_3of4[2] := arr_WP_InOut[26];
+        arr_WP_Out_3of4[3] := arr_WP_InOut[27]; 
+        arr_WP_Out_4of4[0] := arr_WP_InOut[28];
+        arr_WP_Out_4of4[1] := arr_WP_InOut[29];
+        arr_WP_Out_4of4[2] := arr_WP_InOut[30];
+        arr_WP_Out_4of4[3] := arr_WP_InOut[31];
+    END_IF;
+//********************************************************
+// Safe value from previous PLC-Cycle 
+    WP.b_CTR_Allowed_old := WP.b_CTR_Allowed; 
+
+END_FUNCTION_BLOCK

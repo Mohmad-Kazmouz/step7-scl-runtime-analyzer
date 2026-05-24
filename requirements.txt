@@ -1,0 +1,19 @@
+# Parser
+antlr4-python3-runtime==4.13.1
+
+# Graphanalyse (CFG / WCET)
+networkx==3.3
+
+# Terminal-Interface
+click==8.1.7
+rich==13.7.1
+
+# Tests
+pytest==8.2.0
+pytest-cov==5.0.0
+
+# Datenvalidierung (CPU-Profile)
+pydantic==2.7.1
+
+# Export
+jinja2==3.1.4

@@ -1,0 +1,38 @@
+FUNCTION_BLOCK FB10_Regelung
+VAR_INPUT
+    rSollwert  : REAL;
+    rIstwert   : REAL;
+    bAktiv     : BOOL;
+END_VAR
+VAR_OUTPUT
+    rStellwert : REAL;
+    bFehler    : BOOL;
+END_VAR
+VAR
+    rFehler    : REAL;
+    rIntegral  : REAL;
+    rKp        : REAL := 1.0;
+    rKi        : REAL := 0.1;
+END_VAR
+VAR_TEMP
+    rTemp      : REAL;
+    iIndex     : INT;
+END_VAR
+
+BEGIN
+    IF bAktiv THEN
+        rFehler   := rSollwert - rIstwert;
+        rIntegral := rIntegral + rFehler * rKi;
+        rTemp     := rKp * rFehler + rIntegral;
+
+        FOR iIndex := 1 TO 10 DO
+            rTemp := rTemp + SQRT(ABS(rFehler));
+        END_FOR;
+
+        rStellwert := rTemp;
+        bFehler    := FALSE;
+    ELSE
+        rStellwert := 0.0;
+        bFehler    := TRUE;
+    END_IF;
+END_FUNCTION_BLOCK

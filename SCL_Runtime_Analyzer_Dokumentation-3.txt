@@ -1,0 +1,392 @@
+
+
+SCL Runtime Analyzer
+Projektdokumentation
+
+
+
+Statische Laufzeitanalyse für Siemens SCL (FB) auf S7-300 SPS-Hardware
+
+Version
+1.0
+Datum
+Mai 2025
+Dokumenttyp
+Systemspezifikation
+Status
+In Bearbeitung
+
+Vertrauliches Dokument – Nur zur internen Verwendung
+
+1   Systembeschreibung
+
+1.1  Ausgangssituation
+In der industriellen Automatisierungstechnik ist die Einhaltung von Zykluszeiten auf speicherprogrammierbaren Steuerungen (SPS) eine kritische Anforderung. Wird die maximale Zykluszeit überschritten, löst der eingebaute Watchdog einen Fehler aus und versetzt die SPS in den STOP-Zustand – ein in laufenden Produktionsanlagen inakzeptabler Zustand.
+Die Siemens S7-300 ist eine weit verbreitete SPS-Plattform, die in zahlreichen industriellen Anlagen weltweit im Einsatz ist. Ihre Steuerungsprogramme werden im SIMATIC Manager entwickelt, wobei die hochsprachliche Programmiersprache SCL (Structured Control Language) für algorithmisch komplexe Aufgaben eingesetzt wird. Programme sind dabei als Funktionsbausteine (FB) organisiert, die im SIMATIC Manager erstellt, kompiliert und in die SPS geladen werden.
+Obwohl der SIMATIC Manager eine Syntaxprüfung und Kompilierung des SCL-Codes übernimmt, bietet er keine Möglichkeit zur statischen Laufzeitabschätzung vor dem Download auf die Hardware. Entwickler können erst nach dem tatsächlichen Betrieb auf der realen S7-300-Hardware feststellen, ob ein FB innerhalb der konfigurierten Zykluszeit bleibt. Dieses Problem verlängert den Entwicklungszyklus erheblich und birgt Risiken für die Anlagenverfügbarkeit.
+Der SCL Runtime Analyzer setzt genau hier an: Er nimmt bereits kompilierbaren SCL-FB-Code – so wie er aus dem SIMATIC Manager exportiert wird – als Eingabe entgegen und schätzt dessen Laufzeitverhalten auf der S7-300-Hardware statisch ab, ohne dass ein Download oder ein Laufzeittest erforderlich ist.
+
+1.2  Ziele und Erfolgskriterien des Projekts
+Primäre Ziele:
+Statische Schätzung der Worst-Case Execution Time (WCET) für SCL-Funktionsbausteine (FB) auf der Siemens S7-300-Plattform.
+Erkennung von Hotspots: Identifikation besonders rechenintensiver Codebereiche innerhalb eines FB.
+Prüfung, ob die geschätzte Laufzeit die konfigurierte SPS-Zykluszeit überschreitet (Pass/Fail-Bewertung).
+Bereitstellung von Analyseergebnissen ohne Verbindung zu SIMATIC Manager oder realer SPS-Hardware.
+
+Sekundäre Ziele:
+Aufbau einer erweiterbaren Architektur für zukünftige S7-300 CPU-Varianten.
+Visuelle Aufbereitung der Analyseergebnisse (Hotspot-Heatmap, Kontrollflussgraph).
+Bereitstellung von konkreten Optimierungshinweisen für erkannte Laufzeit-Hotspots.
+
+Erfolgskriterien:
+Kriterium
+Messgröße / Zielwert
+Eingabe-Kompatibilität
+Verarbeitung aller kompilierbaren SCL-FB-Exporte aus SIMATIC Manager
+WCET-Abweichung
+< 15% Abweichung von echter S7-300 Hardware-Messung
+Analysedauer
+< 5 Sekunden für FB mit bis zu 500 Zeilen SCL-Code
+Hotspot-Erkennung
+Identifikation aller Schleifen mit > 10 Iterationen
+Plattformunabhängigkeit
+Lauffähig auf Windows 10/11 (primär), Linux, macOS
+
+1.4  Informationsquellen
+Quelle
+Beschreibung / Relevanz
+IEC 61131-3 Standard
+Normative Grundlage der SCL-Sprachspezifikation (Structured Text)
+Siemens SIMATIC Manager Doku
+Offizielle Referenz für SCL-FB-Syntax im SIMATIC Manager Umfeld
+S7-300 Systemhandbuch
+CPU-Befehlslaufzeiten, Speicherarchitektur und Zykluszeit-Verhalten der S7-300
+WCET Analysis Literature
+Forschungsarbeiten zu statischer Worst-Case-Analyse eingebetteter Systeme
+ANTLR 4 Dokumentation
+Parser-Generator für den SCL-Lexer/Parser-Aufbau
+S7-300 CPU Datenblätter
+Befehlslaufzeiten in µs/ns für konkrete S7-300 CPU-Varianten (z.B. CPU 314, CPU 315-2)
+
+1.5  Technische Anforderungen
+Entwicklungsumgebung:
+Programmiersprache: Python 3.10+ (Analyse-Engine) / TypeScript (optional: GUI)
+Parser-Generator: ANTLR 4 für die SCL-Grammatik (SIMATIC Manager FB-Format)
+Ziel-Hardware: Siemens S7-300 (CPU 312 bis CPU 319-3 PN/DP)
+Betriebssystem: Windows 10/11 (primär), Ubuntu 22.04+, macOS 12+
+Mindest-RAM: 4 GB; empfohlen: 8 GB
+
+Externe Abhängigkeiten:
+ANTLR 4 Runtime (Python-Binding)
+NetworkX (Graphanalyse für CFG)
+Rich / Click (Terminal-Interface)
+pytest (Testframework)
+
+Hinweis
+Das System benötigt keine Netzwerkverbindung und keine Installation des SIMATIC Managers. Die Eingabe ist ausschließlich kompilierbarer SCL-FB-Quelltext – eine Syntaxprüfung oder Fehlerkorrektur ist nicht Bestandteil des Analyzers.
+
+
+2   Domänen- und Geschäftsprozessmodell
+
+Der SCL Runtime Analyzer ist in das übergeordnete Domänenmodell der industriellen Softwareentwicklung für SPS-Systeme eingebettet. Die folgende Beschreibung erläutert die wesentlichen Domänenobjekte, deren Beziehungen und den übergeordneten Geschäftsprozess.
+
+2.1  Domänenobjekte und Beziehungen
+Domänenobjekt
+Beschreibung
+SCL-FB-Quellcode
+Eingabe-Artefakt: Kompilierbarer SCL-Funktionsbaustein aus dem SIMATIC Manager (.scl)
+AST (Syntaxbaum)
+Interne Baumdarstellung des FB nach dem Parsen der SCL-Struktur
+Symboltabelle
+Zuordnung von FB-Variablen zu Typen, Scopes und Speicherorten (M, DB, L)
+IR (Intermediate Repr.)
+Vereinfachte, hardwareunabhängige Zwischendarstellung der FB-Logik
+CFG (Kontrollflussgraph)
+Gerichteter Graph zur Darstellung aller Ausführungspfade im FB
+WCET-Schätzung
+Berechnetes Ergebnis: maximale Ausführungszeit des FB in Millisekunden
+S7-300 CPU-Profil
+Hardware-spezifische Befehlslaufzeiten der Ziel-CPU (z.B. CPU 314, CPU 315-2 DP)
+Analyseergebnis
+Ausgabe-Artefakt: WCET, Hotspot-Liste, Pass/Fail-Bewertung gegen Zykluszeit
+
+2.2  Geschäftsprozess: SCL-Laufzeitanalyse
+Der typische Anwendungsfall folgt einem klar strukturierten Ablauf – beginnend im SIMATIC Manager bis zur validierten Freigabe des FB für den Download:
+
+Schritt 1 – FB-Entwicklung: Der SPS-Programmierer erstellt oder modifiziert einen SCL-Funktionsbaustein im SIMATIC Manager. Der Code wird dort erfolgreich kompiliert (kein Syntaxfehler).
+Schritt 2 – Export & Übergabe: Der kompilierbare SCL-FB-Quelltext wird aus dem SIMATIC Manager exportiert und dem Runtime Analyzer als Eingabedatei übergeben. Zusätzlich wird die Ziel-CPU (S7-300-Variante) und die konfigurierte Zykluszeit angegeben.
+Schritt 3 – Parsing: Der Lexer/Parser wandelt den garantiert syntaktisch korrekten SCL-Code in einen AST um. Eine Syntaxfehlerprüfung entfällt, da die Kompilierbarkeit durch den SIMATIC Manager bereits sichergestellt wurde.
+Schritt 4 – Semantikanalyse: Die Symboltabelle wird aufgebaut; Variablentypen und Speicherzugriffe (Merker, DB, Lokalstack) werden klassifiziert und deren Zugriffszeiten auf der S7-300 zugeordnet.
+Schritt 5 – IR-Erzeugung & CFG: Aus dem AST wird die Intermediate Representation generiert und daraus der Kontrollflussgraph des FB erstellt.
+Schritt 6 – WCET-Berechnung: Der kritische Pfad im CFG wird identifiziert und mit den S7-300 CPU-Profildaten zur WCET berechnet.
+Schritt 7 – Ergebnisausgabe: WCET, BCET, Hotspot-Liste und Pass/Fail-Bewertung gegen die Zykluszeit werden ausgegeben.
+Schritt 8 – Entscheidung: Bei PASS wird der FB zur Download-Freigabe weitergegeben. Bei FAIL optimiert der Entwickler den identifizierten Hotspot und wiederholt die Analyse.
+
+Kernprinzip
+Da der Eingabe-Code bereits durch den SIMATIC Manager kompiliert wurde, konzentriert sich der Analyzer ausschließlich auf die Laufzeitcharakteristik – nicht auf Korrektheit. Dies ermöglicht eine schlankere Pipeline ohne Fehlerbehandlungs-Overhead.
+
+
+3   Anforderungen
+
+3.1  Use Case Diagramm
+Das folgende Diagramm zeigt die wesentlichen Akteure und ihre Interaktionen mit dem SCL Runtime Analyzer. Das System verarbeitet ausschließlich FB-Code aus dem SIMATIC Manager für die Siemens S7-300-Plattform.
+
+SYSTEM: SCL Runtime Analyzer  |  Zielplattform: Siemens S7-300
+Akteure:
+[ SPS-Entwickler ]  [ System-Administrator ]  [ CI/CD-Pipeline ]
+Use Cases (SPS-Entwickler):
+(UC-01) Kompilierbaren SCL-FB-Code einlesen und parsen
+(UC-02) Laufzeitanalyse (WCET) durchführen
+(UC-03) Hotspots identifizieren
+(UC-04) S7-300 CPU-Profil auswählen / konfigurieren
+(UC-05) Analyseergebnis exportieren
+Use Cases (CI/CD-Pipeline):
+(UC-06) Batch-Analyse mehrerer FB automatisiert ausführen
+(UC-07) Analyse-Ergebnis als Exit-Code zurückgeben (Pass/Fail)
+Use Cases (Administrator):
+(UC-08) S7-300 CPU-Profile verwalten und kalibrieren
+(UC-09) Systemkonfiguration anpassen
+
+3.2  Use Case Beschreibungen
+
+UC-01: Kompilierbaren SCL-FB-Code einlesen und parsen
+Use Case
+UC-01: Kompilierbaren SCL-FB-Code einlesen und parsen
+Akteur
+SPS-Entwickler
+Vorbedingung
+Kompilierbarer SCL-FB-Quelltext liegt vor (Export aus SIMATIC Manager, kein Syntaxfehler)
+Nachbedingung
+AST des Funktionsbausteins wurde erfolgreich erstellt und steht für die Analyse bereit
+Normalablauf
+1. Entwickler gibt Pfad zur SCL-FB-Datei an
+2. Lexer tokenisiert den SCL-Quelltext
+3. Parser erzeugt den AST gemäß SCL-Grammatik (SIMATIC Manager Format)
+4. Symboltabelle wird aus den FB-Deklarationsabschnitten (VAR, VAR_INPUT, VAR_OUTPUT) aufgebaut
+5. System bestätigt erfolgreichen Parse-Vorgang und meldet FB-Name sowie Zeilenzahl
+Ausnahmen
+Datei nicht gefunden; Datei ist keine SCL-FB-Datei (falsches Format)
+Priorität
+Hoch – Grundvoraussetzung für alle weiteren Use Cases
+
+UC-02: Laufzeitanalyse (WCET) durchführen
+Use Case
+UC-02: Laufzeitanalyse (WCET) durchführen
+Akteur
+SPS-Entwickler
+Vorbedingung
+UC-01 erfolgreich abgeschlossen; S7-300 CPU-Profil ausgewählt
+Nachbedingung
+WCET-Schätzung (in ms) liegt vor; kritischer Pfad wurde identifiziert; Pass/Fail-Bewertung ausgegeben
+Normalablauf
+1. IR-Generator erzeugt Intermediate Representation aus dem AST
+2. CFG-Analyse identifiziert alle Kontrollflüsse des FB
+3. Speicherzugriffsmuster werden S7-300-Zugriffszeiten zugeordnet (M, DB, L)
+4. WCET-Engine berechnet kritischen Pfad anhand des S7-300 CPU-Profils
+5. WCET und BCET (in ms) werden ausgegeben
+6. Vergleich mit konfigurierter Zykluszeit ergibt Pass/Fail-Bewertung
+Ausnahmen
+Unbegrenzte Schleife ohne Abbruchbedingung erkannt; CPU-Profil nicht kompatibel
+Priorität
+Hoch – Kernfunktionalität des Systems
+
+UC-03: Hotspots identifizieren
+Use Case
+UC-03: Hotspots identifizieren
+Akteur
+SPS-Entwickler
+Vorbedingung
+UC-02 abgeschlossen
+Nachbedingung
+Liste der Top-N zeitintensivsten Codeabschnitte liegt vor
+Normalablauf
+1. Profiling-Modul analysiert Zeitanteile pro Codeblock
+2. Schleifen mit hohen Iterationszahlen werden gewichtet
+3. Speicherzugriffsmuster werden klassifiziert
+4. Top-Hotspots werden mit Zeitanteil (%) ausgegeben
+5. Optimierungshinweise werden generiert
+Ausnahmen
+Keine signifikanten Hotspots vorhanden
+Priorität
+Mittel – wichtig für Optimierungsworkflow
+
+UC-04: S7-300 CPU-Profil auswählen
+Use Case
+UC-04: S7-300 CPU-Profil auswählen / konfigurieren
+Akteur
+SPS-Entwickler
+Vorbedingung
+System ist gestartet; mindestens ein S7-300 CPU-Profil ist installiert
+Nachbedingung
+Ausgewähltes Profil ist für die folgende Analyse aktiv
+Normalablauf
+1. Entwickler listet verfügbare S7-300 CPU-Profile auf
+2. Profil wird per Name ausgewählt (z.B. 'S7-300-CPU315-2DP')
+3. Profil-Metadaten werden angezeigt (Taktfrequenz, Befehlslaufzeiten in µs)
+4. Profil wird für die Analyse aktiviert
+Ausnahmen
+Profil nicht gefunden; inkompatibles Profilformat
+Priorität
+Hoch – direkte Auswirkung auf Analysegenauigkeit
+
+UC-05: Analyseergebnis exportieren
+Use Case
+UC-05: Analyseergebnis exportieren
+Akteur
+SPS-Entwickler
+Vorbedingung
+Mindestens eine Analyse (UC-02) wurde durchgeführt
+Nachbedingung
+Ergebnisdatei in gewähltem Format gespeichert
+Normalablauf
+1. Entwickler wählt Exportformat (JSON, HTML, CSV, Text)
+2. Zielverzeichnis wird angegeben
+3. Ergebnis-Generator erstellt strukturierte Ausgabe mit WCET, BCET, Hotspots, Pass/Fail
+4. Datei wird gespeichert und Pfad bestätigt
+Ausnahmen
+Schreibzugriff verweigert; unbekanntes Exportformat
+Priorität
+Mittel – wichtig für Dokumentation und Nachvollziehbarkeit
+
+3.3  Nichtfunktionale Anforderungen
+
+Performance
+Anforderung
+Spezifikation
+NFA-P01: Analysegeschwindigkeit
+WCET-Analyse eines 500-Zeilen FB in unter 5 Sekunden
+NFA-P02: Speicherverbrauch
+Maximal 512 MB RAM für Programme bis 10.000 Zeilen
+NFA-P03: Skalierbarkeit
+Lineare Laufzeitkomplexität O(n) bezogen auf Codezeilen
+
+Zuverlässigkeit
+Anforderung
+Spezifikation
+NFA-Z01: WCET-Genauigkeit
+Abweichung < 15% von Hardware-Messung auf S7-300 im validierten Testset
+NFA-Z02: Eingabe-Robustheit
+Ungültige Datei (kein SCL-FB) führt zu klarer Fehlermeldung, kein Absturz
+NFA-Z03: Reproduzierbarkeit
+Identische Eingabe liefert immer identisches Ergebnis
+
+Wartbarkeit und Erweiterbarkeit
+Anforderung
+Spezifikation
+NFA-W01: Modularität
+Jede Pipeline-Stufe (Parser, IR, CFG, WCET) ist isoliert austauschbar
+NFA-W02: CPU-Profile
+Neue S7-300 CPU-Profile durch JSON-Konfiguration ohne Code-Änderung hinzufügbar
+NFA-W03: Testabdeckung
+Mindestens 85% Unit-Test-Abdeckung der Kernmodule
+NFA-W04: Dokumentation
+Alle öffentlichen APIs sind vollständig dokumentiert (Docstrings)
+
+Benutzbarkeit
+Anforderung
+Spezifikation
+NFA-B01: CLI-Interface
+Vollständige Bedienung über Kommandozeile möglich
+NFA-B02: Fehlermeldungen
+Fehlermeldungen enthalten Dateiname, Zeile und Korrekturhinweis
+NFA-B03: Sprache
+Benutzeroberfläche auf Deutsch und Englisch verfügbar
+
+Sicherheit und Compliance
+Anforderung
+Spezifikation
+NFA-S01: Offline-Betrieb
+Keine Netzwerkverbindung für Kernfunktionen erforderlich
+NFA-S02: Datenschutz
+Quellcode wird nicht extern übertragen oder gespeichert
+NFA-S03: Lizenz
+Alle Abhängigkeiten sind Open-Source-kompatibel (MIT/Apache)
+
+3.4  GUI-Prototyp
+Das System wird primär als CLI-Tool konzipiert. Nachfolgend ist der strukturierte GUI-Prototyp für das Terminal-Interface und eine optionale Web-Oberfläche beschrieben:
+
+3.4.1  CLI-Interface Prototyp
+$ scl-analyzer analyze ./projekt/FB10_Regelung.scl --cpu S7-300-CPU315-2DP --cycle-time 10ms
+
+SCL Runtime Analyzer v1.0.0  |  Zielplattform: Siemens S7-300
+============================================================
+[1/3] Parsing SCL-FB source...        OK  (0.31s)  FB: FB10_Regelung
+[2/3] Building CFG & IR...            OK  (0.09s)  Nodes: 47  Edges: 61
+[3/3] WCET calculation (CPU315-2DP)   OK  (0.22s)
+ANALYSIS RESULTS
+------------------------------------------------------------
+  WCET (Worst Case):     7.83 ms
+  BCET (Best Case):      2.14 ms
+  Cycle Time Budget:     10.00 ms
+  Safety Margin:         21.7%   [PASS]
+TOP HOTSPOTS
+  #1  Line 142-178  ProcessLoop()       3.21 ms (41%)
+  #2  Line 089-091  DB_Read x12         1.44 ms (18%)
+  #3  Line 203-205  SQRT() call         0.98 ms (13%)
+Report saved: ./report_MainFB_20250515.html
+
+3.4.2  Web-Dashboard Prototyp (optional)
+Das optionale Web-Dashboard bietet eine grafische Oberfläche mit folgenden Screens:
+
+Screen / Komponente
+Inhalt und Funktion
+Upload-Bereich
+Drag-and-Drop für SCL-FB-Dateien; S7-300 CPU-Profil-Dropdown; Zykluszeit-Eingabe in ms
+Analyse-Fortschritt
+Live-Progress-Bar für die drei Pipeline-Stufen (Parsing, CFG/IR, WCET) mit Zeitanzeige
+Ergebnis-Dashboard
+Gauge für WCET vs. Zykluszeit; Pass/Fail-Badge; Zeitaufschlüsselung nach Codeblöcken
+Hotspot-Heatmap
+SCL-Quellcode-Viewer mit farblicher Markierung (grün-gelb-rot) nach Zeitanteil
+CFG-Visualisierung
+Interaktiver Kontrollflussgraph des FB; kritischer Pfad hervorgehoben in Rot
+Ergebnis-Export
+Buttons für Download in JSON, HTML, CSV; direkte Druckfunktion
+
+
+4   Glossar
+
+Das folgende Glossar definiert die zentralen Fachbegriffe, die in diesem Dokument und im Rahmen des SCL Runtime Analyzer Projekts verwendet werden.
+
+Begriff
+Definition
+AST
+Abstract Syntax Tree – Abstrakter Syntaxbaum. Baumförmige Datenstruktur, die die syntaktische Struktur eines Quellcodes darstellt. Knoten repräsentieren Sprachkonstrukte (z.B. Schleifen, Ausdrücke).
+BCET
+Best-Case Execution Time – Bestmögliche Ausführungszeit. Die minimal mögliche Zeit, die ein Programm unter günstigsten Bedingungen benötigt.
+CFG
+Control Flow Graph – Kontrollflussgraph. Gerichteter Graph, der alle möglichen Ausführungspfade eines Programms darstellt. Knoten = Basisblöcke, Kanten = mögliche Übergänge.
+CPU-Profil
+JSON-Konfigurationsdatei mit hardware-spezifischen Laufzeitdaten einer S7-300 CPU-Variante, z.B. Ausführungszeit in µs pro Maschinenbefehl für CPU 314 oder CPU 315-2 DP.
+DB
+Data Block – Datenbaustein. In Siemens SPS eine Speicherstruktur zum persistenten Ablegen von Prozessdaten. DB-Zugriffe auf der S7-300 sind typischerweise langsamer als Lokalstack-Zugriffe.
+FB
+Function Block – Funktionsbaustein. In SCL/IEC 61131-3 ein Programmblock mit eigenem Instanzspeicher (Instance-DB). Hält seinen Zustand zwischen Aufrufen. Einziger Programmblock-Typ im Scope dieses Analyzers.
+Hotspot
+Codeabschnitt innerhalb eines FB mit überdurchschnittlich hohem Zeitbedarf. Im Kontext dieses Tools: Codeblöcke, die mehr als 10% der Gesamtlaufzeit des FB verursachen.
+IEC 61131-3
+Internationaler Standard für Programmiersprachen von speicherprogrammierbaren Steuerungen (SPS). Definiert u.a. SCL (Structured Text / ST).
+IR
+Intermediate Representation – Zwischendarstellung. Eine vereinfachte, hardwareunabhängige Darstellung des Programmcodes, die zwischen dem AST und der hardware-nahen Analyse liegt.
+Lexer
+Komponente des Parsers, die den Quelltext in Token (bedeutungstragende Einheiten, z.B. Schlüsselwörter, Bezeichner, Operatoren) zerlegt.
+OB
+Organization Block – Organisationsbaustein. In Siemens SPS der Eintrittspunkt in das Anwenderprogramm, aufgerufen vom Betriebssystem in festen Zyklen.
+Parser
+Komponente, die den Token-Strom des Lexers entgegennimmt und gemäß der Grammatik in eine Baumstruktur (AST) überführt.
+SCL
+Structured Control Language. Hochsprachliche SPS-Programmiersprache von Siemens, basierend auf Pascal/IEC 61131-3 Structured Text. Erlaubt komplexe Algorithmen.
+Semantikanalyse
+Analyse-Phase nach dem Parsing, die prüft, ob das Programm inhaltlich korrekt ist: Typkompatibilität, Scope-Regeln, Variablendeklaration.
+SPS
+Speicherprogrammierbare Steuerung (englisch: PLC – Programmable Logic Controller). Industrierechner zur Steuerung und Überwachung von Maschinen und Anlagen.
+Symboltabelle
+Datenstruktur der Semantikanalyse, die alle Bezeichner (Variablen, Konstanten, Typen) mit ihren Attributen (Typ, Scope, Speicherort) verwaltet.
+SIMATIC Manager
+Siemens Engineering-Software der STEP 7 V5.x Umgebung zur Programmierung und Konfiguration von S7-300/S7-400 SPS-Systemen. Erstellt und kompiliert SCL-Funktionsbausteine. Der Analyzer ist von dieser Software unabhängig.
+TIA Portal
+Totally Integrated Automation Portal. Neuere Siemens Engineering-Plattform (Nachfolger des SIMATIC Managers). Der SCL Runtime Analyzer zielt auf den SIMATIC Manager (STEP 7 V5.x) Workflow ab.
+WCET
+Worst-Case Execution Time – Worst-Case-Ausführungszeit. Die maximal mögliche Zeit, die ein Programm unter ungünstigsten Bedingungen benötigt. Kritisch für Echtzeit-Systeme.
+Watchdog
+Hardware-Überwachungsschaltung in SPS-Systemen. Löst einen Fehler (STOP der SPS) aus, wenn die Zykluszeit die konfigurierte maximale Zeit überschreitet.

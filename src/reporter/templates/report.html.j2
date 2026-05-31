@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCL Runtime Analyzer – {{ result.fb_name }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 2em;
+            color: #333;
+            background: #f5f7fa;
+        }
+        .container { max-width: 960px; margin: 0 auto; }
+        h1 { color: #1f3864; margin-bottom: 0.3em; font-size: 1.8em; }
+        h2 { color: #2c5282; margin-bottom: 1em; font-size: 1.3em; }
+        h3 { color: #2c5282; margin: 1.5em 0 0.8em; font-size: 1.1em; }
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            padding: 1.5em;
+            margin-bottom: 1.5em;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th {
+            background: #1f3864;
+            color: #fff;
+            padding: 10px 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        tr:hover td { background: #f7fafc; }
+        .badge {
+            display: inline-block;
+            padding: 4px 14px;
+            color: #fff;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        .badge-pass { background: #2e7d32; }
+        .badge-fail { background: #c62828; }
+        .metric-value { font-weight: 600; text-align: right; }
+        .pct-bar {
+            height: 8px;
+            border-radius: 4px;
+            background: #e2e8f0;
+            margin-top: 4px;
+            overflow: hidden;
+        }
+        .pct-fill {
+            height: 100%;
+            border-radius: 4px;
+        }
+        .footer {
+            margin-top: 2em;
+            text-align: center;
+            color: #718096;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>⚡ SCL Runtime Analyzer</h1>
+    <h2>Funktionsbaustein: {{ result.fb_name }}</h2>
+
+    <div class="card">
+        <h3>Analyseergebnis</h3>
+        <table>
+            <tr>
+                <th>Kennzahl</th>
+                <th class="metric-value">Wert</th>
+            </tr>
+            <tr>
+                <td>WCET (Worst Case)</td>
+                <td class="metric-value">{{ "%.3f"|format(result.wcet_ms) }} ms</td>
+            </tr>
+            <tr>
+                <td>BCET (Best Case)</td>
+                <td class="metric-value">{{ "%.3f"|format(result.bcet_ms) }} ms</td>
+            </tr>
+            <tr>
+                <td>Zykluszeit (konfiguriert)</td>
+                <td class="metric-value">{{ "%.1f"|format(result.cycle_time_ms) }} ms</td>
+            </tr>
+            <tr>
+                <td>Sicherheitspuffer</td>
+                <td class="metric-value">{{ "%.1f"|format(result.safety_margin_pct) }}%</td>
+            </tr>
+            <tr>
+                <td>Bewertung</td>
+                <td class="metric-value">
+                    {% if result.passed %}
+                    <span class="badge badge-pass">PASS</span>
+                    {% else %}
+                    <span class="badge badge-fail">FAIL</span>
+                    {% endif %}
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    {% if hotspots %}
+    <div class="card">
+        <h3>🔥 Hotspots (kritische Code-Blöcke)</h3>
+        <table>
+            <tr>
+                <th>#</th>
+                <th>Zeilen</th>
+                <th>Latenz (ms)</th>
+                <th>Anteil</th>
+                <th>Optimierungshinweis</th>
+            </tr>
+            {% for h in hotspots %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ h.source_line_start }}–{{ h.source_line_end }}</td>
+                <td>{{ "%.3f"|format(h.latency_ns / 1e6) }}</td>
+                <td>
+                    {{ "%.0f"|format(h.share_pct) }}%
+                    <div class="pct-bar">
+                        {% set pct = h.share_pct|int %}
+                        {% if pct > 100 %}{% set pct = 100 %}{% endif %}
+                        {% if pct > 50 %}
+                        <div class="pct-fill" style="width:{{ pct }}%; background:#e53e3e;"></div>
+                        {% elif pct > 20 %}
+                        <div class="pct-fill" style="width:{{ pct }}%; background:#dd6b20;"></div>
+                        {% else %}
+                        <div class="pct-fill" style="width:{{ pct }}%; background:#d69e2e;"></div>
+                        {% endif %}
+                    </div>
+                </td>
+                <td>{{ h.hint }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        SCL Runtime Analyzer v1.0.0 &mdash; Siemens S7-300 WCET Static Analysis
+    </div>
+</div>
+</body>
+</html>

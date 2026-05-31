@@ -36,3 +36,20 @@ def test_total_wcet():
         cfg.add_block(_make_block(bid, lat))
     cfg.add_edge("A", "B")
     assert cfg.total_wcet_ns() == pytest.approx(300.0)
+
+
+def test_best_case_path_branching():
+    """BCET-Pfad wählt die kürzere Zweiglatenz (Knotengewichte)."""
+    cfg = CFGGraph()
+    cfg.add_block(_make_block("entry", 100.0))
+    cfg.add_block(_make_block("heavy", 5000.0))
+    cfg.add_block(_make_block("light", 50.0))
+    cfg.add_block(_make_block("exit", 80.0))
+    cfg.add_edge("entry", "heavy")
+    cfg.add_edge("entry", "light")
+    cfg.add_edge("heavy", "exit")
+    cfg.add_edge("light", "exit")
+
+    best = cfg.find_best_case_path()
+    assert [b.block_id for b in best] == ["entry", "light", "exit"]
+    assert sum(b.total_latency_ns for b in best) == pytest.approx(230.0)

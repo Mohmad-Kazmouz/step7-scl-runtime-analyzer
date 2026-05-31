@@ -1,6 +1,8 @@
 {
   "name": "S7-300-CPU314",
   "description": "Siemens S7-300 CPU 314 (6ES7 314-1AG14-0AB0), 60MHz",
+  "order_number": "6ES7 314-1AG14-0AB0",
+  "instruction_list_doc": "Siemens S7-300 Instruction List (A5E00261439)",
   "clock_mhz": 60.0,
   "instructions": [
     { "opcode": "LOAD",         "latency_ns": 160.0 },
@@ -10,6 +12,28 @@
     { "opcode": "MUL",          "latency_ns": 150.0 },
     { "opcode": "DIV",          "latency_ns": 270.0 },
     { "opcode": "MOD",          "latency_ns": 230.0 },
+    { "opcode": "ADD_REAL",     "latency_ns": 580.0  },
+    { "opcode": "SUB_REAL",     "latency_ns": 580.0  },
+    { "opcode": "MUL_REAL",     "latency_ns": 580.0  },
+    { "opcode": "DIV_REAL",     "latency_ns": 2520.0 },
+    { "opcode": "MOD_REAL",     "latency_ns": 230.0  },
+    { "opcode": "ADD_DINT",     "latency_ns": 120.0  },
+    { "opcode": "SUB_DINT",     "latency_ns": 120.0  },
+    { "opcode": "MUL_DINT",     "latency_ns": 120.0  },
+    { "opcode": "DIV_DINT",     "latency_ns": 270.0  },
+    { "opcode": "MOD_DINT",     "latency_ns": 230.0  },
+    { "opcode": "CMP_EQ_REAL",  "latency_ns": 870.0  },
+    { "opcode": "CMP_NE_REAL",  "latency_ns": 870.0  },
+    { "opcode": "CMP_LT_REAL",  "latency_ns": 870.0  },
+    { "opcode": "CMP_LE_REAL",  "latency_ns": 870.0  },
+    { "opcode": "CMP_GT_REAL",  "latency_ns": 870.0  },
+    { "opcode": "CMP_GE_REAL",  "latency_ns": 870.0  },
+    { "opcode": "CMP_EQ_DINT",  "latency_ns": 230.0  },
+    { "opcode": "CMP_NE_DINT",  "latency_ns": 230.0  },
+    { "opcode": "CMP_LT_DINT",  "latency_ns": 230.0  },
+    { "opcode": "CMP_LE_DINT",  "latency_ns": 230.0  },
+    { "opcode": "CMP_GT_DINT",  "latency_ns": 230.0  },
+    { "opcode": "CMP_GE_DINT",  "latency_ns": 230.0  },
     { "opcode": "CMP_EQ",       "latency_ns": 230.0 },
     { "opcode": "CMP_NE",       "latency_ns": 230.0 },
     { "opcode": "CMP_LT",       "latency_ns": 230.0 },
@@ -43,5 +67,7 @@
     { "location": "MERKER",       "read_ns": 195.0,  "write_ns": 234.0 },
     { "location": "INPUT",        "read_ns": 130.0,  "write_ns": 156.0 },
     { "location": "OUTPUT",       "read_ns": 130.0,  "write_ns": 156.0 }
-  ]
+  ],
+  "storage_access_source": "Engineering estimates (not in instruction list); opcode table is document-derived",
+  "typed_opcode_source": "Siemens S7-300 Instruction List A5E00261439 §9.14–9.19 (μs→ns, CPU column)"
 }

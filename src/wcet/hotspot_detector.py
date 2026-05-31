@@ -68,16 +68,36 @@ class HotspotDetector:
         from ..ir.ir_nodes import IROpcode
         opcodes = {i.opcode for i in block.instructions}
 
-        if IROpcode.SQRT in opcodes or IROpcode.SIN in opcodes or IROpcode.COS in opcodes:
-            return ("Mathematische Funktionen (SQRT/SIN/COS) sind auf der S7-300 sehr langsam. "
-                    "Vorberechnung oder Lookup-Tabellen in Betracht ziehen.")
+        if (
+            IROpcode.SQRT in opcodes
+            or IROpcode.SIN in opcodes
+            or IROpcode.COS in opcodes
+            or IROpcode.ABS in opcodes
+        ):
+            return (
+                "Mathematische Funktionen (SQRT/SIN/COS/ABS) sind auf der S7-300 sehr langsam. "
+                "Vorberechnung oder Lookup-Tabellen in Betracht ziehen."
+            )
         if IROpcode.DIV in opcodes:
-            return ("Division ist teuer. Falls möglich, durch Multiplikation mit "
-                    "reziprokem Wert ersetzen oder als DINT berechnen.")
+            return (
+                "Division ist teuer. Falls möglich, durch Multiplikation mit "
+                "reziprokem Wert ersetzen oder als DINT berechnen."
+            )
         if IROpcode.MUL in opcodes:
-            return ("Viele Multiplikationen im Block. Bei REAL-Operanden ist DINT "
-                    "auf der S7-300 bis zu 3x schneller.")
-        if any(op in opcodes for op in (IROpcode.LOAD, IROpcode.STORE)):
-            return ("Intensiver DB-Zugriff. Werte in VAR_TEMP-Variablen (Lokalstack) "
-                    "zwischenspeichern reduziert DB-Zugriffszeiten erheblich.")
+            return (
+                "Viele Multiplikationen im Block. Bei REAL-Operanden ist DINT "
+                "auf der S7-300 bis zu 3x schneller."
+            )
+        slow_mem = {"SHARED_DB", "INSTANCE_DB"}
+        mem_ops = [
+            i
+            for i in block.instructions
+            if i.opcode in (IROpcode.LOAD, IROpcode.STORE)
+            and any(op in slow_mem for op in i.operands)
+        ]
+        if mem_ops:
+            return (
+                "Intensiver DB-Zugriff. Werte in VAR_TEMP-Variablen (Lokalstack) "
+                "zwischenspeichern reduziert DB-Zugriffszeiten erheblich."
+            )
         return "Block auf dem kritischen Pfad. Schleifenstruktur oder Berechnungen prüfen."

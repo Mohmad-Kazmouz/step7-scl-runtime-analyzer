@@ -4,20 +4,26 @@ semantic_analyzer.py – Semantische Analyse des AST
 Traversiert den AST (Visitor-Pattern) und baut die Symboltabelle auf.
 Klassifiziert jeden Bezeichner nach Speicherort und ordnet CPU-Zugriffszeiten zu.
 """
-from __future__ import annotations
-from ..parser.ast_nodes import (
-    ASTNode, FunctionBlockNode, VarSectionNode, VariableNode, IdentifierNode,
-)
-from .symbol_table import SymbolTable, Symbol, SymbolKind, StorageLocation
 
+from __future__ import annotations
+
+from ..parser.ast_nodes import (
+    ASTNode,
+    FunctionBlockNode,
+    IdentifierNode,
+    VariableNode,
+    VarSectionNode,
+)
+from .symbol_table import StorageLocation, Symbol, SymbolKind, SymbolTable
 
 # Abbildung: VAR-Abschnittstyp → SymbolKind + StorageLocation
 _SECTION_MAP: dict[str, tuple[SymbolKind, StorageLocation]] = {
-    "VAR":        (SymbolKind.VAR_LOCAL,  StorageLocation.INSTANCE_DB),
-    "VAR_INPUT":  (SymbolKind.VAR_INPUT,  StorageLocation.INSTANCE_DB),
+    "VAR": (SymbolKind.VAR_LOCAL, StorageLocation.INSTANCE_DB),
+    "VAR_INPUT": (SymbolKind.VAR_INPUT, StorageLocation.INSTANCE_DB),
     "VAR_OUTPUT": (SymbolKind.VAR_OUTPUT, StorageLocation.INSTANCE_DB),
     "VAR_IN_OUT": (SymbolKind.VAR_IN_OUT, StorageLocation.INSTANCE_DB),
-    "VAR_TEMP":   (SymbolKind.VAR_TEMP,   StorageLocation.LOCAL_STACK),
+    "VAR_TEMP": (SymbolKind.VAR_TEMP, StorageLocation.LOCAL_STACK),
+    "CONST": (SymbolKind.CONSTANT, StorageLocation.LOCAL_STACK),
 }
 
 
@@ -54,7 +60,11 @@ class SemanticAnalyzer:
             section.kind, (SymbolKind.VAR_LOCAL, StorageLocation.INSTANCE_DB)
         )
         for var in section.variables:
-            read_ns, write_ns = self._profile.get_access_times(storage)
+            # Constants have negligible access time (pre-loaded at compile time)
+            if kind == SymbolKind.CONSTANT:
+                read_ns, write_ns = 0.0, 0.0
+            else:
+                read_ns, write_ns = self._profile.get_access_times(storage)
             symbol = Symbol(
                 name=var.name,
                 type_name=var.type_name,

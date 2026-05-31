@@ -35,7 +35,11 @@ varSectionHeader
     ;
 
 varDecl
-    : IDENT (AT IDENT)? COLON typeName (ASSIGN expression)? SEMI
+    : identList (AT IDENT)? COLON typeName (ASSIGN expression)? SEMI
+    ;
+
+identList
+    : IDENT (COMMA IDENT)*
     ;
 
 typeName
@@ -54,11 +58,11 @@ statementList
 
 statement
     : assignment SEMI
-    | ifStatement SEMI
-    | forStatement SEMI
-    | whileStatement SEMI
-    | repeatStatement SEMI
-    | caseStatement SEMI
+    | ifStatement
+    | forStatement
+    | whileStatement
+    | repeatStatement
+    | caseStatement
     | callStatement SEMI
     | returnStatement SEMI
     | exitStatement SEMI

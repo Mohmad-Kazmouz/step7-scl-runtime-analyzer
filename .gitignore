@@ -7,7 +7,7 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
-src/parser/generated/
+src/parser/generated/_staging/
 *.scl.bak
 
 # OS

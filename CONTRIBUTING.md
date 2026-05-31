@@ -16,6 +16,14 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+After changing `grammar/SCL.g4`, regenerate the parser:
+
+```bash
+python scripts/generate_parser.py
+```
+
+Commit the updated files under `src/parser/generated/`.
+
 ### 2. Create a Branch
 
 Use a descriptive branch name:
@@ -38,7 +46,7 @@ git checkout -b docs/improve-troubleshooting
 pytest
 ```
 
-All 31 tests must pass before submitting a Pull Request.
+All 52 tests must pass before submitting a Pull Request.
 
 ### 5. Commit and Push
 

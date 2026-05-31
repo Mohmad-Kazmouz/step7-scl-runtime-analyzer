@@ -66,3 +66,8 @@ Shortest-Path, die direkt für WCET bzw. BCET genutzt werden.
 | Merker (M)    | 150 ns  | 180 ns    | Globale Merker              |
 | Instanz-DB    | 200 ns  | 250 ns    | VAR / VAR_INPUT / VAR_OUTPUT|
 | Shared-DB     | 400 ns  | 500 ns    | Expliziter DB-Zugriff       |
+
+Diese Werte stammen aus `storage_access` im CPU-Profil und werden im
+`IRGenerator` zu jeder `LOAD`-/`STORE`-Anweisung addiert (Opcode-Basiszeit
++ Speicherzugriff). Builtin-Aufrufe (`SQRT`, `ABS`, `SIN`, `COS`) erhalten
+die jeweilige Opcode-Latenz aus dem Profil.

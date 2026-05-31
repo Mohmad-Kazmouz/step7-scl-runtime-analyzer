@@ -67,3 +67,31 @@ def test_wcet_fail_when_over_budget():
     result = WCETEngine(cycle_time_ms=10.0).analyze(cfg, "OverBudget_FB")
     assert result.passed is False
     assert result.safety_margin_pct < 0
+
+
+def test_fb_simple_bcet_less_than_wcet():
+    """End-to-end: BCET nutzt den ELSE-Zweig und ist strikt kleiner als WCET."""
+    from pathlib import Path
+
+    from src.cfg.cfg_builder import CFGBuilder
+    from src.ir.ir_generator import IRGenerator
+    from src.parser.scl_parser import SCLParser
+    from src.profiles.profile_loader import ProfileLoader
+    from src.semantic.semantic_analyzer import SemanticAnalyzer
+    from src.wcet.loop_bound import LoopBoundAnnotator, collect_var_literal_inits
+
+    scl_path = (
+        Path(__file__).parent.parent / "fixtures" / "scl_samples" / "FB_Simple.scl"
+    )
+    profile = ProfileLoader().load("S7-300-CPU315-2DP")
+    ast = SCLParser().parse_file(scl_path)
+    st = SemanticAnalyzer(profile).analyze(ast)
+    blocks = IRGenerator(profile, st).generate(ast)
+    cfg = CFGBuilder().build(blocks)
+    cfg = LoopBoundAnnotator(max_iterations=100).annotate(
+        cfg, [], var_inits=collect_var_literal_inits(ast)
+    )
+    result = WCETEngine(cycle_time_ms=10.0).analyze(cfg, fb_name=ast.name)
+
+    assert result.bcet_ns > 0
+    assert result.bcet_ns < result.wcet_ns

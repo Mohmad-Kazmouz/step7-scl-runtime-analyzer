@@ -4,7 +4,9 @@ wcet_engine.py – WCET-Berechnung
 Koordiniert CFG-Analyse und gibt WCET/BCET sowie Pass/Fail zurück.
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 from ..cfg.cfg_graph import CFGGraph
 
 
@@ -77,7 +79,12 @@ class WCETEngine:
         """
         critical_path = cfg.find_critical_path()
         wcet_ns = sum(b.total_latency_ns for b in critical_path)
-        bcet_ns = self._compute_bcet(cfg)
+
+        try:
+            best_path = cfg.find_best_case_path()
+            bcet_ns = sum(b.total_latency_ns for b in best_path)
+        except ValueError:
+            bcet_ns = 0.0
 
         return WCETResult(
             fb_name=fb_name,
@@ -86,31 +93,3 @@ class WCETEngine:
             cycle_time_ns=self._cycle_ns,
             critical_path_blocks=critical_path,
         )
-
-    def _compute_bcet(self, cfg: CFGGraph) -> float:
-        """
-        BCET = kürzester Pfad durch den CFG.
-        Vereinfachung: Summe der minimalen Blocklatenz aller Blöcke auf dem
-        kürzesten Pfad (Dijkstra mit negativierten Gewichten).
-        """
-        import networkx as nx
-        g = cfg.graph
-        if len(g) == 0:
-            return 0.0
-        nodes = list(g.nodes)
-        source = nodes[0]
-        sinks  = [n for n in g.nodes if g.out_degree(n) == 0]
-        if not sinks:
-            return 0.0
-
-        # Kürzester Pfad über alle Senken
-        bcet = float("inf")
-        for sink in sinks:
-            try:
-                length = nx.shortest_path_length(
-                    g, source=source, target=sink, weight="latency_ns"
-                )
-                bcet = min(bcet, length)
-            except nx.NetworkXNoPath:
-                pass
-        return bcet if bcet != float("inf") else 0.0

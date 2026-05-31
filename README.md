@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-31%20passed-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/Tests-52%20passed-brightgreen)](#testing)
 [![Platform](https://img.shields.io/badge/Platform-Siemens%20-orange)](https://new.siemens.com/)
 
 ---
@@ -59,7 +59,7 @@ CPU-specific timing profiles are derived from the **official Siemens S7-300 Inst
 | 🏭 **Multi-CPU Support** | CPU 314, 315-2 DP, 317F-3 PN/DP (extensible) |
 | 📊 **Multiple Export Formats** | JSON, HTML, CSV, plain text |
 | ⏱️ **Pass/Fail Verdict** | Validates against configured PLC cycle time |
-| 🧪 **Fully Tested** | 31 unit and integration tests |
+| 🧪 **Fully Tested** | 52 unit and integration tests (CI: Python 3.10–3.12) |
 
 ---
 
@@ -137,7 +137,16 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+The ANTLR-generated parser (`src/parser/generated/`) is **included in the repository** so analysis works immediately after `pip install`. To regenerate it after editing `grammar/SCL.g4`:
+
+```bash
+pip install antlr4-tools
+python scripts/generate_parser.py
+```
+
 After installation, the `scl-analyzer` command is available in your terminal.
+
+> **Python:** 3.10–3.12 are supported (3.14+ is not yet supported by pinned dependencies).
 
 ---
 
@@ -307,15 +316,21 @@ Loops with constant/static boundaries (typically `FOR` loops) are automatically 
     ```
     *   *Bound Resolution:* The parser knows this will iterate **exactly 10 times**. It ignores `--max-iter` and calculates execution time based on exactly 10 iterations.
 
-#### B. Dynamically Bounded Loops (Uses `--max-iter`)
-Loops whose exit conditions depend on dynamically changing values or sensor inputs (such as `WHILE` or `REPEAT` loops) cannot be resolved statically.
-*   **Example:**
-    ```scl
-    WHILE sensor_active DO
-        process_data();  // Latency: 0.001 ms per iteration
-    END_WHILE;
-    ```
-    *   *Bound Resolution:* The exit condition is `sensor_active`, which depends on external inputs. The analyzer must make an assumption. It uses the value provided to `--max-iter` as the worst-case number of iterations.
+#### B. Dynamically Bounded Loops (Uses `--max-iter` as fallback)
+
+Loops whose exit conditions depend on runtime values **without** a visible counter limit use `--max-iter`.
+
+If the WHILE/REPEAT condition contains a **static counter bound**, the analyzer resolves it automatically (same as FOR), for example:
+
+```scl
+i := 0;
+WHILE (bAktiv) AND (i <= MaxCycles) DO   // MaxCycles from VAR init or literal
+    ...
+    i := i + 1;
+END_WHILE;
+```
+
+Supported patterns include `WHILE i < 10` with `i := i + 1`, and `REPEAT ... UNTIL i >= 10`. Only if no static bound is found does `--max-iter` apply.
 
 #### Mathematical Impact of `--max-iter` on WCET:
 Assuming the loop body has a latency of `0.001 ms` per iteration:
@@ -450,7 +465,7 @@ If you do not want to activate the virtual environment, run using the path to th
 ./.venv/bin/pytest tests/integration/
 ```
 
-**Current test status:** ✅ 31 tests passing
+**Current test status:** ✅ 52 tests passing
 
 ---
 

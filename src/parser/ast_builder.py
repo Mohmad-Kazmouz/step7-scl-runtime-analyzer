@@ -3,12 +3,28 @@
 # Wandelt den von ANTLR erzeugten Parse-Tree in unsere eigenen
 # ASTNode-Datenstrukturen um (Visitor-Pattern).
 import re
+
 from .ast_nodes import (
-    ASTNode, FunctionBlockNode, VarSectionNode, VariableNode,
-    StatementListNode, AssignmentNode, IfNode, ForNode, WhileNode,
-    RepeatNode, CaseNode, CallNode, ReturnNode, ExitNode,
-    BinaryOpNode, UnaryOpNode, LiteralNode, IdentifierNode,
-    IndexNode, MemberNode,
+    AssignmentNode,
+    ASTNode,
+    BinaryOpNode,
+    CallNode,
+    CaseNode,
+    ExitNode,
+    ForNode,
+    FunctionBlockNode,
+    IdentifierNode,
+    IfNode,
+    IndexNode,
+    LiteralNode,
+    MemberNode,
+    RepeatNode,
+    ReturnNode,
+    StatementListNode,
+    UnaryOpNode,
+    VariableNode,
+    VarSectionNode,
+    WhileNode,
 )
 from .generated.SCLVisitor import SCLVisitor
 
@@ -24,7 +40,9 @@ class ASTBuilder(SCLVisitor):
         name = ctx.IDENT().getText()
         var_sections = [self.visit(sec) for sec in ctx.varSection() if sec is not None]
         var_sections = [s for s in var_sections if s is not None]
-        const_sections = [self.visit(sec) for sec in ctx.constantSection() if sec is not None]
+        const_sections = [
+            self.visit(sec) for sec in ctx.constantSection() if sec is not None
+        ]
         const_sections = [s for s in const_sections if s is not None]
         var_sections.extend(const_sections)
         body = self.visit(ctx.statementList()) if ctx.statementList() else None
@@ -47,7 +65,7 @@ class ASTBuilder(SCLVisitor):
         return VarSectionNode(
             line=ctx.start.line,
             col=ctx.start.column,
-            kind="VAR",
+            kind="CONST",
             variables=variables,
         )
 
@@ -73,14 +91,18 @@ class ASTBuilder(SCLVisitor):
     def visitVarSection(self, ctx) -> ASTNode:
         """VAR / VAR_INPUT / VAR_OUTPUT / VAR_TEMP Abschnitt"""
         kind = ctx.varSectionHeader().getText().upper()
-        # Fallback for VAR_CONSTANT to be treated as VAR
+        # VAR_CONSTANT is semantically a constant
         if kind == "VAR_CONSTANT":
-            kind = "VAR"
+            kind = "CONST"
         variables = []
         if ctx.varDecl():
             for decl in ctx.varDecl():
                 v = self.visit(decl)
-                if v is not None:
+                if v is None:
+                    continue
+                if isinstance(v, list):
+                    variables.extend(v)
+                else:
                     variables.append(v)
         return VarSectionNode(
             line=ctx.start.line,
@@ -89,20 +111,23 @@ class ASTBuilder(SCLVisitor):
             variables=variables,
         )
 
-    def visitVarDecl(self, ctx) -> ASTNode:
-        """Name (AT Overlay)? : Typ := Initialwert;"""
-        if not ctx.IDENT():
+    def visitVarDecl(self, ctx) -> ASTNode | list[VariableNode]:
+        """Name[, Name ...] (AT Overlay)? : Typ := Initialwert;"""
+        if not ctx.identList() or not ctx.identList().IDENT():
             return None
-        name = ctx.IDENT(0).getText()
         type_name = self.visit(ctx.typeName()) if ctx.typeName() else ""
         initial_value = self.visit(ctx.expression()) if ctx.expression() else None
-        return VariableNode(
-            line=ctx.start.line,
-            col=ctx.start.column,
-            name=name,
-            type_name=type_name,
-            initial_value=initial_value,
-        )
+        names = [ident.getText() for ident in ctx.identList().IDENT()]
+        return [
+            VariableNode(
+                line=ctx.start.line,
+                col=ctx.start.column,
+                name=name,
+                type_name=type_name,
+                initial_value=initial_value,
+            )
+            for name in names
+        ]
 
     def visitTypeName(self, ctx) -> str:
         """Typname"""
@@ -502,7 +527,9 @@ class ASTBuilder(SCLVisitor):
     def _determine_access_type(self, name: str) -> str:
         name_upper = name.upper()
         # DB access: starts with DB followed by digit, or contains a dot and starts with DB
-        if name_upper.startswith("DB") and ("." in name_upper or name_upper[2:].isdigit()):
+        if name_upper.startswith("DB") and (
+            "." in name_upper or name_upper[2:].isdigit()
+        ):
             return "DB"
         if re.match(r"^M[BWD]?\d+(\.\d+)?$", name_upper):
             return "MERKER"

@@ -10,6 +10,7 @@ from .ast_nodes import (
     StatementListNode, AssignmentNode, IfNode, ForNode, WhileNode,
     RepeatNode, CaseNode, CallNode, ExpressionNode, BinaryOpNode,
     UnaryOpNode, LiteralNode, IdentifierNode, IndexNode, MemberNode,
+    ExitNode, ReturnNode,
 )
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "WhileNode", "RepeatNode", "CaseNode", "CallNode",
     "ExpressionNode", "BinaryOpNode", "UnaryOpNode",
     "LiteralNode", "IdentifierNode", "IndexNode", "MemberNode",
+    "ExitNode", "ReturnNode",
 ]

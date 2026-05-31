@@ -91,8 +91,10 @@ def analyze(scl_file: Path, cpu: str, cycle_time: str,
         
         # Schleifen-Schranken auflösen
         loop_nodes = _collect_loops(ast)
-        from ..wcet.loop_bound import LoopBoundAnnotator
-        cfg = LoopBoundAnnotator(max_iterations=max_iter).annotate(cfg, loop_nodes)
+        from ..wcet.loop_bound import LoopBoundAnnotator, collect_var_literal_inits
+        cfg = LoopBoundAnnotator(max_iterations=max_iter).annotate(
+            cfg, loop_nodes, var_inits=collect_var_literal_inits(ast)
+        )
         
     console.print(f"[green]✓[/green] CFG erstellt: {len(cfg)} Blöcke (Schleifen aufgelöst)")
 
@@ -158,10 +160,19 @@ def _parse_time_ms(s: str) -> float:
     """Parst Zeitangaben wie '10ms', '0.5s', '10' (als ms)."""
     s = s.strip().lower()
     if s.endswith("ms"):
-        return float(s[:-2])
-    if s.endswith("s"):
-        return float(s[:-1]) * 1000.0
-    return float(s)
+        ms = float(s[:-2])
+    elif s.endswith("s"):
+        ms = float(s[:-1]) * 1000.0
+    else:
+        ms = float(s)
+    if ms <= 0:
+        raise ValueError(f"Zykluszeit muss positiv sein, erhalten: {s!r}")
+    return ms
+
+
+def _format_ms(ns: float) -> str:
+    """Formatiert Nanosekunden als ms (4 Nachkommastellen, kein falscher Nullwert)."""
+    return f"{ns / 1_000_000:.4f} ms"
 
 
 def _print_results(result, hotspots) -> None:
@@ -170,8 +181,8 @@ def _print_results(result, hotspots) -> None:
     summary = Table(box=box.ROUNDED, show_header=True)
     summary.add_column("Kennzahl", style="bold")
     summary.add_column("Wert", justify="right")
-    summary.add_row("WCET (Worst Case)",   f"{result.wcet_ms:.3f} ms")
-    summary.add_row("BCET (Best Case)",    f"{result.bcet_ms:.3f} ms")
+    summary.add_row("WCET (Worst Case)",   _format_ms(result.wcet_ns))
+    summary.add_row("BCET (Best Case)",    _format_ms(result.bcet_ns))
     summary.add_row("Zykluszeit",          f"{result.cycle_time_ms:.1f} ms")
     summary.add_row("Sicherheitspuffer",   f"{result.safety_margin_pct:.1f}%")
     summary.add_row("Bewertung",           status)
@@ -188,7 +199,7 @@ def _print_results(result, hotspots) -> None:
             hs_table.add_row(
                 str(i),
                 f"{h.source_line_start}–{h.source_line_end}",
-                f"{h.latency_ns/1e6:.3f} ms",
+                _format_ms(h.latency_ns),
                 f"{h.share_pct:.0f}%",
                 h.hint,
             )
